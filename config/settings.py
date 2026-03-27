@@ -9,8 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    # Database
-    db_url: str = "postgresql+psycopg2://user:password@localhost:5432/pricetracker"
+    # Database  (SQLite default for dev; swap to postgres+asyncpg in prod)
+    db_url: str = "sqlite+aiosqlite:///pricetracker.db"
 
     # Telegram
     telegram_bot_token: str = ""
@@ -24,9 +24,14 @@ class Settings(BaseSettings):
     alert_threshold: float = 0.80           # alert if new_price < avg * this
     z_threshold: float = 2.0
 
-    # Anti-bot
+    # Anti-bot delays (seconds)
     min_delay_seconds: float = 2.0
     max_delay_seconds: float = 6.0
+
+    # Vatan target URLs (override via VATAN_URLS env var as comma-separated)
+    vatan_urls: list[str] = [
+        "https://www.vatanbilgisayar.com/arama/ram",
+    ]
 
 
 settings = Settings()

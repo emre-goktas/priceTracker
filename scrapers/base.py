@@ -2,15 +2,15 @@ from abc import ABC, abstractmethod
 
 
 class BaseScraper(ABC):
-    """Base class for all site-specific scrapers."""
+    """Base class for all site-specific scrapers (async interface)."""
 
     source: str = ""
 
     @abstractmethod
-    def scrape(self) -> list[dict]:
+    async def scrape(self) -> list[dict]:
         """
         Scrape products from the target site.
-        Returns a list of raw product dicts in the format:
+        Returns a list of raw product dicts:
         {
             "name": str,
             "price": float,
