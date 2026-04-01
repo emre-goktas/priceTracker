@@ -4,14 +4,24 @@ Uses aiosqlite for SQLite (dev) or asyncpg for PostgreSQL (prod).
 """
 
 import logging
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy import select
+from sqlalchemy import select, event
+from sqlalchemy.pool import Pool
 
 from storage.models import Base, PriceHistory, Product
 from normalizer.normalizer import NormalizedProduct
 
 logger = logging.getLogger(__name__)
 
+# Apply SQLite optimization PRAGMAs globally on new connections
+@event.listens_for(Pool, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-64000")  # 64MB cache
+    cursor.close()
 
 def make_engine(db_url: str):
     return create_async_engine(db_url, echo=False, future=True)
@@ -48,7 +58,19 @@ class Repository:
             result.name = product.name  # update if name changed
         return result
 
-    async def add_price_record(self, product: NormalizedProduct) -> PriceHistory:
+    async def add_price_record(self, product: NormalizedProduct) -> Optional[PriceHistory]:
+        # Prevent database bloat by skipping duplicate consecutive prices
+        stmt = (
+            select(PriceHistory)
+            .where(PriceHistory.product_id == product.id)
+            .order_by(PriceHistory.timestamp.desc())
+            .limit(1)
+        )
+        last_record = (await self.session.execute(stmt)).scalar_one_or_none()
+        
+        if last_record and last_record.price == product.price and last_record.is_in_stock == product.is_in_stock:
+            return None
+
         record = PriceHistory(
             product_id=product.id,
             price=product.price,

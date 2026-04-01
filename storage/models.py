@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     func,
+    Index,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -39,6 +40,9 @@ class Product(Base):
 
 class PriceHistory(Base):
     __tablename__ = "price_history"
+    __table_args__ = (
+        Index("ix_price_history_product_timestamp", "product_id", "timestamp"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))

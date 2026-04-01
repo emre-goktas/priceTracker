@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
 
     # Scheduler
-    scrape_interval_minutes: int = 10
+    scrape_interval_minutes: int = 15
 
     # Analytics
     analytics_strategy: str = "threshold"   # "threshold" | "zscore"

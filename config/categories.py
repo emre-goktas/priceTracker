@@ -5,38 +5,35 @@ Each entry maps a site name to the specific URL path (slug) for that category.
 
 CATEGORIES: list[dict] = [
     {
-        "name": "ram",
-        "keywords": ["DDR4", "DDR5", "16GB", "32GB"],
+        "name": "TV",        
         "paths": {
-            "vatan": "/arama/ram",
-            "amazon": "/s?k=ram",
-            "teknosa": "/arama/?text=ram",
-            "hepsiburada": "/bellek-ramler-c-47",
-            "mediamarkt": "/tr/search.html?query=ram"
+            "vatan": "/televizyon",          
+            "hepsiburada": "/led-tv-televizyonlar-c-163192",
+            "mediamarkt": "/tr/category/tv-goruntu-ve-ses-678536.html"
         }
     },
     {
-        "name": "gpu",
-        "keywords": ["RTX 40", "RTX 50", "RX 7000", "Ekran Kartı"],
+        "name": "Printer",
         "paths": {
-            "vatan": "/arama/ekran-karti",
-            "amazon": "/s?k=ekran+kartı",
-            "hepsiburada": "/ara?q=ekran+karti"
+            "vatan": "/arama/yazici",
+            "mediamarkt": "/tr/category/yazici-tarayici-797535.html",
+            "hepsiburada": "/yazicilar-c-3013118"
         }
     },
     {
-        "name": "phone",
+        "name": "Beyaz Esya",
         "paths": {
-            "vatan": "/cep-telefonu-modelleri",
-            "hepsiburada": "/cep-telefonlari-c-371965",
-            "mediamarkt": "/tr/category/telefon-465595.html"
+            "vatan": "/mutfak-urunleri",
+            "hepsiburada": "/beyaz-esya-ankastreler-c-235604",
+            "mediamarkt": "/tr/category/beyaz-esya-465707.html"
         }
     },
     {
-        "name": "toys",
+        "name": "Bluetooth Kulaklik",
         "paths": {
-            "vatan": "/playstation",
-            "hepsiburada": "/oyuncaklar-c-23031884"
+            "vatan": "/bluetooth-kulaklik",
+            "hepsiburada": "/bluetooth-kulakliklar-c-16218",
+            "mediamarkt": "/tr/category/bluetooth-kulakliklar-795539.html"
         }
     }
 ]
