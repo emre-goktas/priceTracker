@@ -21,6 +21,7 @@ from playwright_stealth import Stealth
 
 from scrapers.base import BaseScraper
 from config.settings import settings
+from config.categories import CATEGORIES
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,29 @@ class VatanScraper(BaseScraper):
     source = "vatan"
 
     def __init__(self, urls: Optional[list[str]] = None):
-        self.urls = urls or settings.vatan_urls
+        """
+        Build URLs dynamically: base_url + category_path.
+        Accepts optional urls list for overrides or manual runs.
+        """
+        self.urls = urls or self._build_urls()
+
+    def _build_urls(self) -> list[str]:
+        """Combine settings.vatan_base_url with paths from CATEGORIES."""
+        base = settings.vatan_base_url.rstrip("/")
+        built = []
+        for cat in CATEGORIES:
+            path = cat.get("paths", {}).get(self.source)
+            if path:
+                # Ensure path starts with /
+                if not path.startswith("/"):
+                    path = f"/{path}"
+                built.append(f"{base}{path}")
+
+        # Fallback to .env/settings overrides if no categories matched
+        if not built and settings.vatan_urls:
+            built = settings.vatan_urls
+
+        return built
 
     # ------------------------------------------------------------------
     # Public interface

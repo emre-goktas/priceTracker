@@ -28,10 +28,11 @@ class Settings(BaseSettings):
     min_delay_seconds: float = 2.0
     max_delay_seconds: float = 6.0
 
-    # Vatan target URLs (override via VATAN_URLS env var as comma-separated)
-    vatan_urls: list[str] = [
-        "https://www.vatanbilgisayar.com/arama/ram",
-    ]
+    # Site Base URLs (Homepages)
+    vatan_base_url: str = "https://www.vatanbilgisayar.com"
+    amazon_base_url: str = "https://www.amazon.com.tr"
+    teknosa_base_url: str = "https://www.teknosa.com"
+    vatan_urls: list[str] = [] # Kept for backward compatibility/overrides
 
 
 settings = Settings()
