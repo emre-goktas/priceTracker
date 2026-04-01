@@ -9,3 +9,7 @@ dist/
 build/
 *.egg-info/
 logs/
+
+notes.md
+
+.browser_profile

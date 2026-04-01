@@ -27,6 +27,7 @@ PRODUCT_CARD_SELECTORS = [
 ]
 
 NAME_SELECTORS = [
+    "[data-test='product-title']",
     "[data-test='mms-product-title']",
     "[data-test='mms-product-list-item-title']",
     "p[class*='title']",
@@ -35,12 +36,14 @@ NAME_SELECTORS = [
 ]
 
 PRICE_SELECTORS = [
+    "[data-test='mms-price'] span",
     "[data-test='mms-price']",
     "[class*='price']",
     "span[font-family='price']"
 ]
 
 LINK_SELECTORS = [
+    "a[data-test*='product-list-item-link']",
     "a[data-test='mms-product-list-item-link']",
     "a[href*='/product/']",
     "a:has(picture)",
@@ -84,16 +87,15 @@ class MediaMarktScraper(BaseScraper):
         results: list[dict] = []
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=False,  # Headful to bypass strict bot protections
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
-            )
-            context = await browser.new_context(
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir="./.browser_profile",
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
                 user_agent=random.choice(USER_AGENTS),
                 viewport={"width": 1920, "height": 1080},
                 locale="tr-TR",
             )
-            page = await context.new_page()
+            page = context.pages[0] if context.pages else await context.new_page()
             await Stealth().apply_stealth_async(page)
 
             for url in self.urls:
@@ -107,7 +109,7 @@ class MediaMarktScraper(BaseScraper):
                 if url != self.urls[-1]:
                     await asyncio.sleep(random.uniform(2, 5))
 
-            await browser.close()
+            await context.close()
 
         return results
 
@@ -123,6 +125,7 @@ class MediaMarktScraper(BaseScraper):
 
         cards_locator = await self._find_elements(page, PRODUCT_CARD_SELECTORS)
         if not cards_locator:
+            logger.warning("[MediaMarktScraper] ⚠ _find_elements returned no cards for %s", url)
             return []
 
         cards = await cards_locator.all()
@@ -168,26 +171,28 @@ class MediaMarktScraper(BaseScraper):
         return None
 
     async def _extract_price(self, card: Locator) -> Optional[float]:
-        # Try finding text with ₺ or TL
-        try:
-            raw_text = await card.inner_text()
-            match = re.search(r'(?:₺|TL)?\s*\d+[.,\d]*\s*(?:₺|TL|-)?', raw_text)
-            if match:
-                price_str = match.group(0)
-                parsed = self._parse_price(price_str)
-                if parsed: return parsed
-        except Exception:
-            pass
-
-        # Fallback to selectors if regex failed
+        # Priority 1: Target specific price selectors
         for sel in PRICE_SELECTORS:
             try:
                 el = card.locator(sel).first
                 if await el.count():
                     text = (await el.inner_text()).strip()
                     if text:
-                        return self._parse_price(text)
+                        parsed = self._parse_price(text)
+                        if parsed: return parsed
             except Exception: continue
+
+        # Priority 2: Fallback to regex search on the whole card if selectors fail
+        try:
+            raw_text = await card.inner_text()
+            # Look for ₺ followed by numbers
+            match = re.search(r'₺\s*(\d+[.\d,]*)', raw_text)
+            if match:
+                parsed = self._parse_price(match.group(1))
+                if parsed: return parsed
+        except Exception:
+            pass
+
         return None
 
     async def _extract_url(self, card: Locator) -> Optional[str]:
@@ -210,13 +215,26 @@ class MediaMarktScraper(BaseScraper):
 
     @staticmethod
     def _parse_price(text: str) -> Optional[float]:
-        # Handle "₺69.999,-", "14.599 TL" etc.
-        text = text.replace("₺", "").replace("TL", "").replace(",-", "").strip()
-        if "," in text and "." in text:
-            text = text.replace(".", "").replace(",", ".")
-        elif "," in text:
-            text = text.replace(",", ".")
-        clean = re.sub(r"[^\d.]", "", text)
+        # Handle "₺69.999,–", "14.599 TL" etc.
+        # MediaMarkt uses en-dash (–) or em-dash (—) frequently.
+        text = text.replace("₺", "").replace("TL", "").replace(",-", "").replace(",–", "").replace(",—", "").strip()
+        
+        # If multiple values remain (like from dual spans), take the first numeric block
+        match = re.search(r'(\d+[.\d,]*)', text)
+        if not match:
+            return None
+            
+        clean = match.group(1)
+        
+        # Handle Turkish decimal format (1.234,56 -> 1234.56)
+        if "," in clean and "." in clean:
+            clean = clean.replace(".", "").replace(",", ".")
+        elif "," in clean:
+            clean = clean.replace(",", ".")
+            
+        # Final pass to remove any non-numeric except dot
+        clean = re.sub(r"[^\d.]", "", clean)
+        
         try:
             return float(clean) if clean else None
         except ValueError:
@@ -230,7 +248,11 @@ class MediaMarktScraper(BaseScraper):
     async def _find_elements(self, page: Page, selectors: list[str]) -> Optional[Locator]:
         for sel in selectors:
             try:
+                await page.wait_for_selector(sel, state="attached", timeout=15000)
                 locator = page.locator(sel)
-                if await locator.count() > 0: return locator
-            except Exception: continue
+                if await locator.count() > 0: 
+                    return locator
+            except Exception: 
+                continue
+        logger.warning("[MediaMarktScraper] No product cards found. Possibly blocked by PerimeterX or still loading.")
         return None

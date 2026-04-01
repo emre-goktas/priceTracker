@@ -29,7 +29,7 @@ CATEGORIES: list[dict] = [
         "paths": {
             "vatan": "/cep-telefonu-modelleri",
             "hepsiburada": "/cep-telefonlari-c-371965",
-            "mediamarkt": "/tr/category/_ak%C4%B1ll%C4%B1-telefonlar-504171.html"
+            "mediamarkt": "/tr/category/telefon-465595.html"
         }
     },
     {
