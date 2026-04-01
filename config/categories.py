@@ -10,7 +10,8 @@ CATEGORIES: list[dict] = [
         "paths": {
             "vatan": "/arama/ram",
             "amazon": "/s?k=ram",
-            "teknosa": "/arama/?text=ram"
+            "teknosa": "/arama/?text=ram",
+            "hepsiburada": "/bellek-ramler-c-47"
         }
     },
     {
@@ -19,12 +20,14 @@ CATEGORIES: list[dict] = [
         "paths": {
             "vatan": "/arama/ekran-karti",
             "amazon": "/s?k=ekran+kartı",
+            "hepsiburada": "/ara?q=ekran+karti"
         }
     },
     {
         "name": "phone",
         "paths": {
             "vatan": "/cep-telefonu-modelleri",
+            "hepsiburada": "/cep-telefonlari-c-371965"
         }
     }
 ]

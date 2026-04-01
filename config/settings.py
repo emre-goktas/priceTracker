@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     vatan_base_url: str = "https://www.vatanbilgisayar.com"
     amazon_base_url: str = "https://www.amazon.com.tr"
     teknosa_base_url: str = "https://www.teknosa.com"
+    hepsiburada_base_url: str = "https://www.hepsiburada.com"
     vatan_urls: list[str] = [] # Kept for backward compatibility/overrides
+    hepsiburada_urls: list[str] = []
 
 
 settings = Settings()
