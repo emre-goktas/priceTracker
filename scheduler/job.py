@@ -10,6 +10,7 @@ from config.settings import settings
 from scrapers.manager import ScraperManager
 from scrapers.vatan import VatanScraper
 from scrapers.hepsiburada import HepsiburadaScraper
+from scrapers.mediamarkt import MediaMarktScraper
 from normalizer.normalizer import normalize_batch
 from storage.database import init_db, make_session_factory, Repository
 from analytics.engine import AnalyticsEngine
@@ -22,7 +23,7 @@ async def run_pipeline(dry_run: bool = False):
     logger.info("[Pipeline] Starting scrape run (dry_run=%s)…", dry_run)
 
     # --- Scrape ---
-    manager = ScraperManager(scrapers=[VatanScraper(), HepsiburadaScraper()])
+    manager = ScraperManager(scrapers=[VatanScraper(), HepsiburadaScraper(), MediaMarktScraper()])
     raw = await manager.run_all()
 
     if not raw:

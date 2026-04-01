@@ -33,8 +33,10 @@ class Settings(BaseSettings):
     amazon_base_url: str = "https://www.amazon.com.tr"
     teknosa_base_url: str = "https://www.teknosa.com"
     hepsiburada_base_url: str = "https://www.hepsiburada.com"
+    mediamarkt_base_url: str = "https://www.mediamarkt.com.tr"
+    
     vatan_urls: list[str] = [] # Kept for backward compatibility/overrides
     hepsiburada_urls: list[str] = []
-
+    mediamarkt_urls: list[str] = []
 
 settings = Settings()

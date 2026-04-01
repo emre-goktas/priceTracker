@@ -11,7 +11,8 @@ CATEGORIES: list[dict] = [
             "vatan": "/arama/ram",
             "amazon": "/s?k=ram",
             "teknosa": "/arama/?text=ram",
-            "hepsiburada": "/bellek-ramler-c-47"
+            "hepsiburada": "/bellek-ramler-c-47",
+            "mediamarkt": "/tr/search.html?query=ram"
         }
     },
     {
@@ -27,7 +28,15 @@ CATEGORIES: list[dict] = [
         "name": "phone",
         "paths": {
             "vatan": "/cep-telefonu-modelleri",
-            "hepsiburada": "/cep-telefonlari-c-371965"
+            "hepsiburada": "/cep-telefonlari-c-371965",
+            "mediamarkt": "/tr/category/_ak%C4%B1ll%C4%B1-telefonlar-504171.html"
+        }
+    },
+    {
+        "name": "toys",
+        "paths": {
+            "vatan": "/playstation",
+            "hepsiburada": "/oyuncaklar-c-23031884"
         }
     }
 ]
