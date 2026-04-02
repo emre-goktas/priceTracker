@@ -18,3 +18,8 @@ feedback.md
 .saas_analysis.md
 
 db_report.md
+
+pricetracker.db
+pricetracker.db-shm
+pricetracker.db-wal 
+
