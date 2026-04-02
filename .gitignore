@@ -10,7 +10,7 @@ build/
 *.egg-info/
 logs/
 
-notes.md
+.notes.md
 
 .browser_profile
 
