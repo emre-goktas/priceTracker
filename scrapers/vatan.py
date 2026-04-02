@@ -287,8 +287,14 @@ class VatanScraper(BaseScraper):
         Handle both formats:
           '14.599,00 TL'  → 14599.0
           '14599.00'      → 14599.0
+          '116.999'       → 116999.0 
         """
-        text = text.strip()
+        text = text.replace("₺", "").replace("TL", "").strip()
+
+        # Guard against reading words as prices
+        if re.search(r'[a-zA-Z]', text):
+            return None
+
         # Turkish format: dots as thousand separators, comma as decimal
         if "," in text and "." in text:
             # e.g. '14.599,00'
@@ -296,6 +302,14 @@ class VatanScraper(BaseScraper):
         elif "," in text:
             # e.g. '14599,00'
             text = text.replace(",", ".")
+        elif "." in text:
+            # Could be thousand separator (e.g., 14.599)
+            parts = text.rsplit(".", 1)
+            if len(parts) == 2 and len(parts[1]) == 3:
+                text = text.replace(".", "")
+            else:
+                pass
+                
         # Remove non-numeric chars except dot
         clean = re.sub(r"[^\d.]", "", text)
         try:

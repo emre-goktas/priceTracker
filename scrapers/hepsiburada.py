@@ -206,9 +206,22 @@ class HepsiburadaScraper(BaseScraper):
 
     @staticmethod
     def _parse_price(text: str) -> Optional[float]:
-        # Hepsiburada usually "14.599,00 TL" or "14.599 TL"
-        text = text.split("TL")[0].strip()
-        text = text.replace(".", "").replace(",", ".")
+        text = text.replace("₺", "").replace("TL", "").strip()
+
+        if re.search(r'[a-zA-Z]', text):
+            return None
+
+        if "," in text and "." in text:
+            text = text.replace(".", "").replace(",", ".")
+        elif "," in text:
+            text = text.replace(",", ".")
+        elif "." in text:
+            parts = text.rsplit(".", 1)
+            if len(parts) == 2 and len(parts[1]) == 3:
+                text = text.replace(".", "")
+            else:
+                pass
+
         clean = re.sub(r"[^\d.]", "", text)
         try:
             return float(clean) if clean else None
