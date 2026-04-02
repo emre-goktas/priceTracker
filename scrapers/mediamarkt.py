@@ -38,8 +38,8 @@ NAME_SELECTORS = [
 PRICE_SELECTORS = [
     "[data-test='mms-price'] span",
     "[data-test='mms-price']",
-    "[class*='price']",
-    "span[font-family='price']"
+    "span[font-family='price']",
+    "[data-test='mms-product-list-item-price']"
 ]
 
 LINK_SELECTORS = [
@@ -123,6 +123,14 @@ class MediaMarktScraper(BaseScraper):
             await page.evaluate(f"window.scrollBy(0, {500 + i*200})")
             await asyncio.sleep(1.0)
 
+        apollo_state = {}
+        try:
+            apollo_state_str = await page.evaluate("() => JSON.stringify(window.apolloState || {})")
+            import json
+            apollo_state = json.loads(apollo_state_str)
+        except Exception as e:
+            logger.debug("[MediaMarktScraper] Could not get apolloState: %s", e)
+
         cards_locator = await self._find_elements(page, PRODUCT_CARD_SELECTORS)
         if not cards_locator:
             logger.warning("[MediaMarktScraper] ⚠ _find_elements returned no cards for %s", url)
@@ -131,14 +139,59 @@ class MediaMarktScraper(BaseScraper):
         cards = await cards_locator.all()
         products: list[dict] = []
         for card in cards:
-            product = await self._extract_product(card)
+            product = await self._extract_product(card, apollo_state)
             if product:
                 products.append(product)
 
         return products
 
-    async def _extract_product(self, card: Locator) -> Optional[dict]:
+    async def _extract_product(self, card: Locator, apollo_state: dict = None) -> Optional[dict]:
         try:
+            url = await self._extract_url(card)
+            if not url: return None
+
+            if apollo_state:
+                # Attempt to extract from Apollo State using ID from URL (e.g. ...-1232436.html)
+                match = re.search(r'-(\d+)\.html', url)
+                if match:
+                    prod_id = match.group(1)
+                    prod_info = apollo_state.get(f"Product:{prod_id}")
+                    if prod_info:
+                        price_val = None
+                        price_info = prod_info.get("price")
+                        if isinstance(price_info, dict):
+                            price_val = price_info.get("amount") or price_info.get("price")
+                            if price_val is None and "currentPrice" in prod_info:
+                                price_val = prod_info["currentPrice"]
+                        elif isinstance(price_info, (int, float)):
+                            price_val = float(price_info)
+                        elif "currentPrice" in prod_info:
+                            price_val = prod_info["currentPrice"]
+
+                        name = prod_info.get("name")
+                        stock_info = prod_info.get("availability")
+                        is_in_stock = True
+                        if isinstance(stock_info, dict):
+                            is_in_stock = stock_info.get("status") != "OUT_OF_STOCK"
+
+                        if not price_val:
+                            price_val = await self._extract_price(card)
+                        else:
+                            price_val = float(price_val)
+
+                        if not name:
+                            name = await self._extract_text(card, NAME_SELECTORS)
+                            if not name: return None
+
+                        if price_val is not None:
+                            return {
+                                "name": name,
+                                "price": price_val,
+                                "url": url,
+                                "source": self.source,
+                                "is_in_stock": is_in_stock,
+                            }
+
             name = await self._extract_text(card, NAME_SELECTORS)
             if not name: return None
 
@@ -185,11 +238,13 @@ class MediaMarktScraper(BaseScraper):
         # Priority 2: Fallback to regex search on the whole card if selectors fail
         try:
             raw_text = await card.inner_text()
-            # Look for ₺ followed by numbers
-            match = re.search(r'₺\s*(\d+[.\d,]*)', raw_text)
-            if match:
-                parsed = self._parse_price(match.group(1))
-                if parsed: return parsed
+            # Look for ₺ followed by numbers. Take the *last* valid match to avoid "En düşük fiyat" (lowest price) historical data.
+            matches = re.findall(r'₺\s*(\d+[.\d,]*)', raw_text)
+            if matches:
+                # Iterate backwards to find the first valid price
+                for m in reversed(matches):
+                    parsed = self._parse_price(m)
+                    if parsed: return parsed
         except Exception:
             pass
 
@@ -219,6 +274,10 @@ class MediaMarktScraper(BaseScraper):
         # MediaMarkt uses en-dash (–) or em-dash (—) frequently.
         text = text.replace("₺", "").replace("TL", "").replace(",-", "").replace(",–", "").replace(",—", "").strip()
         
+        # If there are alphabetic characters left, it's likely a campaign badge like '10 Taksit', skip it
+        if re.search(r'[a-zA-Z]', text):
+            return None
+            
         # If multiple values remain (like from dual spans), take the first numeric block
         match = re.search(r'(\d+[.\d,]*)', text)
         if not match:
@@ -226,11 +285,23 @@ class MediaMarktScraper(BaseScraper):
             
         clean = match.group(1)
         
-        # Handle Turkish decimal format (1.234,56 -> 1234.56)
+        # Handle Turkish decimal format (1.234,56 -> 1234.56 or 7.150 -> 7150.0)
         if "," in clean and "." in clean:
+            # e.g., 14.599,00 -> 14599.00
             clean = clean.replace(".", "").replace(",", ".")
         elif "," in clean:
+            # e.g., 14599,00 -> 14599.00
             clean = clean.replace(",", ".")
+        elif "." in clean:
+            # Could be thousand separator (7.150) or decimal (7.15).
+            # In Turkish layout, values ending with .XXX (3 digits) without commas are almost always thousand separators.
+            parts = clean.rsplit(".", 1)
+            if len(parts) == 2 and len(parts[1]) == 3:
+                # Usually a thousand separator (e.g. 7.150)
+                clean = clean.replace(".", "")
+            else:
+                # Keep decimal as-is (e.g., 7.15)
+                pass
             
         # Final pass to remove any non-numeric except dot
         clean = re.sub(r"[^\d.]", "", clean)
