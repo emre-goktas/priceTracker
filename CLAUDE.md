@@ -70,15 +70,14 @@ price-bot/
 
 ## MinIO Klasör Yapısı (KESİN, DEĞİŞTİRİLEMEZ ŞEMA)
 
-Kaybolmamak için bucket yapısı sıkı disiplinle korunmalı:
+Kaybolmamak için bucket yapısı sıkı disiplinle korunmalı. Üst seviye ayrım **veri tipine** göre yapılır (`robots/`, `sitemaps/`, `category/`, `product/`), site adı bir alt seviyededir — böylece tek bir veri tipi tüm sitelerde tutarlı biçimde gözden geçirilebilir:
 
 ```
-raw/
-  {site}/
-    robots/{YYYY-MM-DD}/{sha256}.txt
-    sitemap/{YYYY-MM-DD}/{sha256}.xml
-    category/{YYYY-MM-DD}/{category_id}/{sha256}.json
-    product/{YYYY-MM-DD}/{product_id}/{sha256}.json
+datalake/                      # bucket adı
+  robots/{site}/{YYYY-MM-DD}/{sha256}.txt
+  sitemaps/{site}/{YYYY-MM-DD}/{sha256}.xml
+  category/{site}/{YYYY-MM-DD}/{category_id}/{sha256}.json
+  product/{site}/{YYYY-MM-DD}/{product_id}/{sha256}.json
 ```
 
 Kurallar:

@@ -1,0 +1,15 @@
+sites:
+  - name: gratis
+    base_url: https://www.gratis.com
+    country: TR
+    enabled: true
+
+  - name: rossmann
+    base_url: https://www.rossmann.com.tr
+    country: TR
+    enabled: true
+
+  - name: watsons
+    base_url: https://www.watsons.com.tr
+    country: TR
+    enabled: true
