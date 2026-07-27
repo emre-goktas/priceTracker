@@ -1,0 +1,63 @@
+# --- Secrets ---
+.env
+*.env
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Test / lint / type-check caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Databases (yerel, discovery/matching çıktıları) ---
+*.sqlite3
+*.sqlite
+*.db
+*.duckdb
+*.duckdb.wal
+
+# --- Airflow (yerel çalışma dosyaları) ---
+airflow.cfg
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+logs/
+
+# --- MinIO (docker volume ile yönetiliyor, repo'ya bind mount olarak düşerse) ---
+minio_data/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Genel loglar ---
+*.log
+
+# --- Kişisel hazırlık notları / eski çalışmalar (süreç için gerekli değil, git takibi yok) ---
+rawDataAnalysis/
+genel_notlar.md
+teknik_ozet.md
