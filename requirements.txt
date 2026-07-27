@@ -2,3 +2,4 @@ httpx
 minio
 pyyaml
 python-dotenv
+asyncpg

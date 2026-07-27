@@ -15,5 +15,19 @@ services:
     command: server /data --console-address ":9001"
     restart: always
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecomm_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pricebot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SuperSecretPassword123!}
+      POSTGRES_DB: ${POSTGRES_DB:-pricebot}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
 volumes:
   minio_data:
+  postgres_data:
