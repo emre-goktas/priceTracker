@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import base64
 import json
-import re
-from collections import defaultdict
 from collections.abc import AsyncIterator
 from xml.etree import ElementTree
 
-from core.db import get_discovered_urls
 from shared.http_client import fetch
-from shared.logging_config import get_logger
 
-logger = get_logger(__name__)
-
-# Bu modül site adı bilmez: sadece configs/tr/{site}.yaml'da tanımlı stratejileri uygular.
-# Yeni bir strateji gerekirse buraya eklenir; site_plugins/{site}.py'da literal regex/ID olmaz.
+# Bu modül site adı bilmez: sadece configs/tr/{site}.yaml'da tanımlı ayarları uygular.
+#
+# NOT: Kategori ID'leri artık configs/tr/{site}.yaml -> main_categories'te statik duruyor
+# (veritabanı/API key'i, kolay değişmez). Bu dosyada daha önce bulunan canlı kategori-keşif
+# stratejileri (dynamic_api/own_sitemap_regex/category_page_scrape) kaldırıldı — hiçbir yerden
+# çağrılmıyorlardı. configs/tr/{site}.yaml'daki category_discovery blokları referans/geçmiş
+# kaydı olarak duruyor; ileride bir kategori-listeleme endpoint'i selfheal katmanında
+# değerlendirilmek istenirse oradan yeniden inşa edilir.
 
 
 def resolve_path(obj: object, path: str) -> object:
@@ -152,123 +152,3 @@ async def fetch_category_pages(config: dict, category_id: str) -> AsyncIterator[
             page += 1
             if offset >= total or not items:
                 break
-
-
-# --- Kategori keşfi stratejileri ---
-
-
-async def discover_categories(site_name: str, config: dict, base_url: str) -> list[str]:
-    strategy = config["category_discovery"]["strategy"]
-    if strategy == "dynamic_api":
-        return await _discover_dynamic_api(config)
-    if strategy == "own_sitemap_regex":
-        return await _discover_own_sitemap_regex(site_name, config, base_url)
-    if strategy == "category_page_scrape":
-        return await _discover_category_page_scrape(site_name, config, base_url)
-    raise ValueError(f"Bilinmeyen category_discovery stratejisi: {strategy}")
-
-
-async def _discover_dynamic_api(config: dict) -> list[str]:
-    disc = config["category_discovery"]
-    response = await fetch(disc["url"], params=disc.get("extra_params", {}), headers=config.get("base_headers", {}))
-    data = response.json()
-    container = resolve_path(data, disc["response"]["category_ids_path"]) or {}
-    exclude = set(disc["response"].get("exclude_keys", []))
-    return sorted(k for k in container.keys() if k not in exclude)
-
-
-async def _discover_own_sitemap_regex(site_name: str, config: dict, base_url: str) -> list[str]:
-    """Sitemap URL'lerinden kategori kodu çıkarır.
-
-    Ana kategori (categoryCode) ile sorgulamak zaten TÜM alt-ağacın ürünlerini kapsıyor
-    (anchor-category davranışı, ampirik olarak doğrulandı — bkz. watsons.yaml). Bu yüzden
-    'main_category_rule' varsa SADECE gerçek ana kategoriler döndürülür (derinlik + alt-URL
-    sayısı sinyaliyle kampanya/marka landing page'lerinden ayıklanmış); yoksa (kural tanımlı
-    değilse) tüm kodlar döner.
-    """
-    disc = config["category_discovery"]
-    urls = await get_discovered_urls(site_name, source_contains=disc["source_sitemap_contains"])
-
-    main_rule = disc.get("main_category_rule")
-    if not main_rule:
-        pattern = re.compile(disc["url_regex"])
-        codes: set[str] = set()
-        for url in urls:
-            match = pattern.search(url)
-            if match:
-                codes.add(match.group(1))
-        return sorted(codes)
-
-    target_depth = main_rule.get("depth", 1)
-    min_children = main_rule.get("min_child_urls", 1)
-    base_prefix = base_url.rstrip("/") + "/"
-    slug_pattern = re.compile(rf"^{re.escape(base_prefix)}([a-z0-9\-]+(?:/[a-z0-9\-]+)*)/c/([0-9_]+)$")
-
-    parsed: list[tuple[str, str, int]] = []
-    for url in urls:
-        match = slug_pattern.match(url)
-        if not match:
-            continue
-        slug_path, code = match.groups()
-        depth = slug_path.count("/") + 1
-        parsed.append((slug_path, code, depth))
-
-    main_codes: set[str] = set()
-    for slug, code, depth in parsed:
-        if depth != target_depth:
-            continue
-        prefix = slug + "/"
-        child_count = sum(1 for s, _, d in parsed if d > target_depth and s.startswith(prefix))
-        if child_count >= min_children:
-            main_codes.add(code)
-
-    return sorted(main_codes)
-
-
-async def _discover_category_page_scrape(site_name: str, config: dict, base_url: str) -> list[str]:
-    disc = config["category_discovery"]
-    root_cfg = disc["root_slug_source"]
-    exclude_patterns = root_cfg.get("exclude_patterns", [])
-    min_child_paths = root_cfg.get("min_child_paths", 1)
-
-    urls = await get_discovered_urls(site_name)
-    base_prefix = base_url.rstrip("/") + "/"
-
-    slugs = []
-    for url in urls:
-        if any(p in url for p in exclude_patterns):
-            continue
-        if not url.startswith(base_prefix):
-            continue
-        path = url[len(base_prefix):].strip("/")
-        if path:
-            slugs.append(path)
-
-    child_counts: dict[str, int] = defaultdict(int)
-    for path in slugs:
-        if "/" in path:
-            child_counts[path.split("/")[0]] += 1
-
-    root_slugs = [slug for slug, count in child_counts.items() if count >= min_child_paths]
-
-    own_id_regex = re.compile(disc["extraction"]["own_id_regex"])
-
-    # NOT: sadece KÖK kategori ID'si toplanır, çocukları ayrıca eklenmez. Ampirik olarak
-    # doğrulandı (kisisel-bakim id=4, total=3109 — tek başına 3 çocuğu bile 1851'i buluyor):
-    # ana kategoriyle sorgulamak zaten tüm alt-ağacın ürünlerini kapsıyor (anchor-category
-    # davranışı). Çocukları da ayrıca taramak devasa bir redundant crawl yaratırdı.
-    category_ids: set[str] = set()
-    for slug in root_slugs:
-        page_url = f"{base_prefix}{slug}"
-        response = await fetch(page_url, headers=config.get("base_headers", {}))
-        if response.status_code != 200:
-            logger.warning(f"{site_name}: kök kategori sayfası çekilemedi {page_url} -> {response.status_code}")
-            continue
-
-        match = own_id_regex.search(response.text)
-        if match:
-            category_ids.add(match.group(1))
-        else:
-            logger.warning(f"{site_name}: {slug} sayfasında own_id_regex eşleşmedi")
-
-    return sorted(category_ids)

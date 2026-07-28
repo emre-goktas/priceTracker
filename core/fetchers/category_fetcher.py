@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-
-import yaml
 
 from core.parsers import base_parser
 from core.parsers.site_plugins import gratis, rossmann, watsons
@@ -12,16 +9,10 @@ from shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-SITES_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "configs" / "sites.yaml"
 SITE_PLUGINS = [gratis, watsons, rossmann]
 
 
-def _load_base_urls() -> dict[str, str]:
-    raw = yaml.safe_load(SITES_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    return {entry["name"]: entry["base_url"] for entry in raw.get("sites", []) if entry.get("enabled")}
-
-
-async def fetch_site_categories(plugin, base_url: str) -> None:
+async def fetch_site_categories(plugin) -> None:
     site = plugin.SITE_NAME
     config = plugin.load_config()
 
@@ -44,9 +35,8 @@ async def fetch_site_categories(plugin, base_url: str) -> None:
 
 
 async def run_category_fetch() -> None:
-    base_urls = _load_base_urls()
     results = await asyncio.gather(
-        *(fetch_site_categories(plugin, base_urls[plugin.SITE_NAME]) for plugin in SITE_PLUGINS),
+        *(fetch_site_categories(plugin) for plugin in SITE_PLUGINS),
         return_exceptions=True,
     )
     for plugin, result in zip(SITE_PLUGINS, results):
