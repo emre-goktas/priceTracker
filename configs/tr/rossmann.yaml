@@ -9,6 +9,13 @@ base_headers:
   Referer: "https://www.rossmann.com.tr/"
   X-Requested-With: "XMLHttpRequest"
 
+# Sayfalar/kategoriler arası bekleme + retry — hardcode değil, buradan okunur (bkz.
+# core/parsers/base_parser.py).
+rate_limit:
+  delay_seconds: 1.5
+  max_retries: 3
+  retry_backoff_seconds: 2.0
+
 # Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i, kolay
 # kolay değişmez. Ampirik olarak doğrulandı (2026-07-29): bu 7 kategorinin toplamı (~8839,
 # çakışma üst sınırı) kategori filtresi olmadan bulunan tüm katalog sayısıyla (~8786) pratik

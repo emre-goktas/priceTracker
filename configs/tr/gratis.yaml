@@ -7,6 +7,14 @@ base_headers:
   Accept: "application/json, text/plain, */*"
   Accept-Language: "tr-TR,tr;q=0.9"
 
+# Sayfalar/kategoriler arası bekleme + retry — hardcode değil, buradan okunur (bkz.
+# core/parsers/base_parser.py). Ampirik olarak gözlemlendi: throttle'sız art arda istekte
+# Gratis WAF'ı 11 sayfayı 403 ile bloklamıştı; delay_seconds ile tekrar denendiğinde 0 blok.
+rate_limit:
+  delay_seconds: 1.5
+  max_retries: 3
+  retry_backoff_seconds: 2.0
+
 # Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i,
 # kolay kolay değişmez. Çalışma zamanında her seferinde canlı keşfe gerek yok.
 #

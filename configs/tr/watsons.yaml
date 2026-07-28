@@ -9,6 +9,13 @@ base_headers:
   Referer: "https://www.watsons.com.tr/"
   Origin: "https://www.watsons.com.tr"
 
+# Sayfalar/kategoriler arası bekleme + retry — hardcode değil, buradan okunur (bkz.
+# core/parsers/base_parser.py).
+rate_limit:
+  delay_seconds: 1.5
+  max_retries: 3
+  retry_backoff_seconds: 2.0
+
 # Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i,
 # kolay kolay değişmez. Ampirik olarak doğrulandı (2026-07-29): bu kategorilerin toplamı
 # (~10136, çakışma üst sınırı) tüm site kapsamını karşılıyor — ayrı bir "tüm alt kategorileri

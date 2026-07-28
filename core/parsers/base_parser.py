@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
@@ -120,6 +121,11 @@ async def fetch_category_pages(config: dict, category_id: str) -> AsyncIterator[
     """Bir kategorinin tüm sayfalarını sırayla çeker. Her sayfa için
     (sayfa_no, http_status, ham_bytes) üretir. Sayfa numarası bazlı (Watsons) ve offset
     bazlı (Gratis/Rossmann) sayfalamayı config'teki 'pagination' alanına göre ayırt eder.
+
+    Rate-limit ayarları (bekleme + retry) configs/tr/{site}.yaml -> rate_limit'ten okunur,
+    kodda hardcode edilmez: art arda hızlı istekler Gratis'te WAF tarafından 403 ile
+    bloklanabiliyor (ampirik olarak gözlemlendi), bir sayfa bloklanırsa/hata alırsa vazgeçmeden
+    önce birkaç kez yeniden denenir.
     """
     api_cfg = config["category_search_api"]
     response_cfg = api_cfg["response"]
@@ -127,11 +133,25 @@ async def fetch_category_pages(config: dict, category_id: str) -> AsyncIterator[
     page_size = pagination_cfg.get("page_size", 60)
     page_param = pagination_cfg.get("page_param")
 
+    rate_cfg = config.get("rate_limit", {})
+    delay_seconds = rate_cfg.get("delay_seconds", 1.5)
+    max_retries = rate_cfg.get("max_retries", 3)
+    retry_backoff_seconds = rate_cfg.get("retry_backoff_seconds", 2.0)
+
     page = 0
     offset = 0
     while True:
+        if page > 0:
+            await asyncio.sleep(delay_seconds)
+
         url, params = build_category_request(config, category_id, offset=offset, limit=page_size, page=page)
-        response = await fetch(url, params=params, headers=config.get("base_headers", {}))
+
+        response = None
+        for attempt in range(1, max_retries + 1):
+            response = await fetch(url, params=params, headers=config.get("base_headers", {}))
+            if response.status_code == 200 or attempt == max_retries:
+                break
+            await asyncio.sleep(retry_backoff_seconds * attempt)
 
         yield page, response.status_code, response.content
 
