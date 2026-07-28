@@ -1,11 +1,43 @@
-# WIP — core/ fetcher hazırlık notları (kod henüz yazılmadı)
-# Doğrulandı: düz httpx + hafif header ile 200 OK, curl_cffi/cookie/Akamai/QueueIT token gerekmedi.
+# Watsons fetch-özel config. Kapsam: sitenin TAMAMI (kategori filtresi yok).
+# Doğrulandı: curl_cffi (impersonate=chrome120) ile 200 OK, tek istekte EAN+fiyat+stok geliyor.
+# Regex/kategori ID gibi kırılgan bilgiler burada (YAML) yaşar, core/parsers/site_plugins/watsons.py
+# içine literal olarak gömülmez — self-heal sadece bu dosyayı güncelleyebildiği için (bkz. CLAUDE.md).
 
 base_headers:
   Accept: "application/json, text/plain, */*"
   Accept-Language: "tr-TR,tr;q=0.9"
   Referer: "https://www.watsons.com.tr/"
   Origin: "https://www.watsons.com.tr"
+
+# Kategori kodu listesi HARDCODE EDİLMEZ: ayrı bir ağ isteği bile gerekmiyor — zaten
+# crawler/ modülünün topladığı "Category" sitemap URL'lerinden (crawler.db -> sitemap_urls,
+# source_sitemap_url'i "Category" içeren satırlar) regex ile türetilir.
+#
+# İki seviyeli çıkarım:
+#   1) all_category_codes: TÜM /c/{code} URL'leri (derinlik farketmeksizin) -> crawl kapsamı
+#      budur, "tüm site" kapsamına göre hiçbiri filtrelenmez.
+#   2) main_category (etiketleme/organizasyon amaçlı, crawl'ı kısıtlamaz): bir /c/ URL'i
+#      derinlik=1 (domain sonrası tek slug segmenti) VE en az 1 başka /c/ URL'i kendi slug'ını
+#      prefix olarak taşıyorsa (yani altında gerçekten alt-kategorileri varsa) "ana kategori"
+#      sayılır. Bu, gerçek taksonomiyi (Makyaj, Cilt Bakım, ...) kampanya/marka landing
+#      page'lerinden (clear-men, secili-avon-urunleri, ... hepsi 0 alt-URL) ayırt eder.
+category_discovery:
+  strategy: own_sitemap_regex
+  source_sitemap_contains: "Category"
+  url_regex: "/c/([0-9_]+)$"
+  main_category_rule:
+    depth: 1
+    min_child_urls: 1
+  # Doğrulandı (2026-07-28), sıfır yeni ağ isteğiyle (tamamen kendi veritabanımızdan):
+  #   - toplam benzersiz /c/ kodu: 791 (tüm derinlikler, crawl kapsamı budur)
+  #   - main_category_rule ile ayıklanan gerçek ana kategoriler (alt-URL sayısı ile):
+  #     makyaj/100(187), kisisel-bakim/103(136), cilt-bakim/101(134), sac-bakim/102(129),
+  #     erkek-bakim/105(59), saglikli-yasam/106(28), ev-ve-yasam/108(21), aksesuar/109(15),
+  #     surdurulebilir-yasam/0001|107|30002(5 her biri), k-beauty/104(1)
+  #   - kullanıcının bildiği "parfum" (100013) ve "sadece-watsonsta" (50058) sitemap'te hiç yok
+  #     (muhtemelen bilerek sitemap'e eklenmemiş kampanya/nav öğeleri) -> crawl'a dahil olamazlar,
+  #     ama zaten all_category_codes zaten en kapsamlı kaynak, eksik kalan bu 2 tanesi ürün
+  #     kaybı yaratmaz çünkü o ürünler başka /c/ kodlarında da (örn. üst kategori) muhtemelen yer alır.
 
 category_search_api:
   method: GET
@@ -14,28 +46,30 @@ category_search_api:
     fields: FULL
     searchType: PRODUCT
     categoryCode: "{category_code}"
+    currentPage: "{page}"
     lang: tr_TR
     curr: TRY
-  # NOT: Accept header'a rağmen her zaman XML dönüyor (denendi: Accept varyantları, format=json
-  # query param, .json suffix — hiçbiri JSON'a çevirmedi). AMA XML içeriği JSON ile BİREBİR AYNI
-  # VERİ (doğrulandı) -> sorun değil, XML parse edilecek.
+  pagination:
+    page_param: currentPage
+    zero_indexed: true
   response:
-    format: xml
-    total_count_field: pagination.totalResults
-    items_field: products
-    # her <products> elemanında: code (BP_...), ean (virgülle ayrık, birden fazla EAN olabilir),
-    # price.value, stock.stockLevel/stockLevelStatus, masterBrand.name, name -> hepsi tek istekte.
+    # NOT: content-type bazen XML bazen JSON dönüyor (aynı veri, sunucu/edge tarafı bir
+    # content-negotiation tutarsızlığı — bot engeli DEĞİL, doğrulandı). İkisi de handle edilecek.
+    format: json_or_xml
+    total_count_path: "pagination.totalResults"
+    total_pages_path: "pagination.totalPages"
+    items_path: "products"
 
-# product_detail_api (eski, 3. parti Insider domaini üzerinden) — category_search_api zaten tam
-# veri döndüğü için muhtemelen gerekmeyecek, referans için tutuluyor:
-product_detail_api:
-  method: GET
-  url_template: "https://recommendationv2.api.useinsider.com/10010063/tr_TR/product/details/{product_id}"
-  params:
-    details: "true"
-
-# TODO: tam categoryCode listesi eksik. Elimizde sadece örnek: "103" (kişisel-bakım).
-# Olası kaynak: zaten çektiğimiz Watsons "Category" sitemap'i (crawler.db -> sitemap_urls,
-# source sitemap = Category-tr_TR-TRY, 1299 URL) -> categoryCode'lar oradan türetilebilir mi
-# araştırılacak.
-main_categories: []
+field_mapping:
+  code: {strategy: direct_path, path: "code"}
+  # ean bazen virgülle ayrık birden fazla değer taşıyor -> ilk değeri birincil EAN say.
+  ean: {strategy: direct_path, path: "ean", modifier: comma_split_first}
+  all_eans: {strategy: direct_path, path: "ean", modifier: comma_split_all}
+  price: {strategy: direct_path, path: "price.value"}
+  stock_status: {strategy: direct_path, path: "stock.stockLevelStatus"}
+  stock_level: {strategy: direct_path, path: "stock.stockLevel"}
+  name: {strategy: direct_path, path: "name"}
+  brand: {strategy: direct_path, path: "masterBrand.name"}
+  category_path: {strategy: direct_path, path: "categoryNameHierarchy", modifier: split_slash}
+  # url göreli döner (örn. "/nivea-.../p/BP_131804") -> base_url ile birleştirilecek.
+  url: {strategy: direct_path, path: "url", modifier: prepend_base_url}

@@ -1,11 +1,48 @@
-# WIP — core/ fetcher hazırlık notları (kod henüz yazılmadı)
-# Doğrulandı: düz httpx + hafif header ile 200 OK, curl_cffi/oturum cookie'si gerekmedi.
+# Rossmann fetch-özel config. Kapsam: sitenin TAMAMI (kategori filtresi yok).
+# Doğrulandı: curl_cffi (impersonate=chrome120) ile 200 OK, tek istekte EAN+fiyat+stok geliyor.
+# Regex/kategori ID gibi kırılgan bilgiler burada (YAML) yaşar, core/parsers/site_plugins/rossmann.py
+# içine literal olarak gömülmez — self-heal sadece bu dosyayı güncelleyebildiği için (bkz. CLAUDE.md).
 
 base_headers:
   Accept: "*/*"
   Accept-Language: "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
   Referer: "https://www.rossmann.com.tr/"
   X-Requested-With: "XMLHttpRequest"
+
+# Kategori ID listesi HARDCODE EDİLMEZ. Kökten çözüm: her kök kategori sayfası (server-rendered
+# HTML, Watsons'ın aksine JS-challenge/Akamai bloğu YOK) kendi JS state'inde hem kendi ID'sini
+# (`currentCategory: N`) hem de TÜM doğrudan çocuklarını (`childPathsMapping`: {entity_id, name})
+# taşıyor. Yani tek bir sayfa fetch'i o dalın tam alt-kategori ağacını veriyor — ayrı bir
+# "tüm kategorileri keşfet" adımına gerek yok.
+#
+# root_slugs listesi de hardcode bir kategori-ID listesi DEĞİL: crawler/ modülünün topladığı
+# Rossmann sitemap URL'lerinden (crawler.db -> sitemap_urls) türetilir. Yöntem: '-p-' (ürün) ve
+# 'cdn.rossmann' (görsel) içermeyen URL'ler arasında iç içe path'i olanları (örn.
+# "kisisel-bakim/erkek-kisisel-bakim-urunleri") üst slug'a göre grupla; kampanya/CMS sayfaları
+# (örn. "11-11-alisveris-gunleri-*") hiç alt-path taşımadığı için elenir, gerçek taksonomi kökleri
+# onlarca alt-path'e sahip olduğu için ayrışır.
+category_discovery:
+  strategy: category_page_scrape
+  root_slug_source:
+    from: sitemap_urls
+    exclude_patterns: ["-p-", "cdn.rossmann"]
+    group_by: "parent_segment_of_nested_path"
+    min_child_paths: 10   # doğrulandı: gerçek kökler 15-87 alt-path, kampanya sayfaları hep 0-1
+  extraction:
+    own_id_regex: "currentCategory:\\s*([0-9]+)"
+    children_json_key: "childPathsMapping"
+    # childPathsMapping örneği: {"1/2/4/50": {"entity_id":"50","name":"Ağız ve Diş Bakım"}, ...}
+  # Doğrulandı (2026-07-28), navbar isimleriyle sıra dahil birebir eşleşti:
+  #   kisisel-bakim id=4  -> 50 Ağız ve Diş Bakım, 178 Banyo Ürünleri, 51 Parfüm & Deodorant,
+  #                          52 Saç Bakım, 56 Kadın Bakım Ürünleri, 57 Epilasyon/Ağda/Tıraş,
+  #                          58 Ayak Bakımı, 53 Erkek Bakım
+  #   temizlik id=7       -> 188 Genel Temizlik, 156 Çamaşır, 157 Bulaşık, 158 Fırın, 160 Banyo,
+  #                          159 Mutfak Temizlik Malzemeleri, 162 Temizlik Malzemeleri, 163 Kokular
+  #   makyaj id=3         -> 9 Dudak, 10 Göz-Kaş, 11 Yüz, 12 Tırnak, 13 Makyaj Aksesuarları,
+  #                          14 Doğal Makyaj Ürünleri
+  #   diğer kök slug'lar (cilt-bakimi, ev-yasam, anne-bebek, saglik-gida) aynı yöntemle işlenir.
+  # NOT: "Saç Bakım"/"Erkek Bakım" navbar'da göze çarpsa da yapısal olarak kisisel-bakim'in
+  # ÇOCUĞU (id=4 altında) — ayrı kök kategori değiller, bu kasıtlı bir tasarım, eksiklik değil.
 
 category_search_api:
   method: GET
@@ -15,18 +52,26 @@ category_search_api:
     order: position
     direction: asc
     from: "{offset}"
-    size: "{limit}"   # test edilen: 12. eski rossmann_batch.py'de 60 max limit notu vardı, doğrulanacak.
+    size: "{limit}"
+  pagination:
+    offset_param: from
+    limit_param: size
+    page_size: 60   # eski rossmann_batch.py'de 60 max limit notu vardı; 12 ve 60 ikisi de 200 döndü
   response:
-    total_count_field: product.hits.total.value
-    items_field: product.hits.hits
-    # her hit._source içinde: barcode (EAN), price, sku, brand, name, qty, is_in_stock,
-    # mnm_stock_status, master_category_id, cat_pos_* (ürünün bağlı olduğu diğer kategori ID'leri
-    # — kategori ID keşfi için ipucu olabilir) -> hepsi tek istekte.
+    format: json
+    total_count_path: "product.hits.total.value"
+    items_path: "product.hits.hits"
+    # her hit, gerçek ürün verisi hit._source altında sarmalanmış (bkz. field_mapping).
 
-  # ESKİ YAKLAŞIM (rossman.py, ARTIK GEREKSİZ): HTML sayfasını JSON-LD + .mnm-barcode class'ından
-  # scrape etmek gerekiyor sanılmıştı — elastic.php zaten tüm veriyi verdiği için bu adım atlanabilir.
-
-# TODO: tam categoryId listesi eksik. Elimizde sadece örnekler: categoryId=4, categoryId=5.
-# Olası kaynak: ana navigasyon menüsü HTML'i, veya örneklem ürünlerin cat_pos_*/master_category_id
-# alanlarından kategori ID'lerini toplamak.
-main_categories: []
+field_mapping:
+  ean: {strategy: direct_path, path: "_source.barcode"}
+  price: {strategy: direct_path, path: "_source.price"}
+  sku: {strategy: direct_path, path: "_source.sku"}
+  brand: {strategy: direct_path, path: "_source.brand"}
+  name: {strategy: direct_path, path: "_source.name"}
+  stock_status: {strategy: direct_path, path: "_source.mnm_stock_status"}
+  stock_qty: {strategy: direct_path, path: "_source.qty"}
+  in_stock: {strategy: direct_path, path: "_source.is_in_stock"}
+  master_category_id: {strategy: direct_path, path: "_source.master_category_id"}
+  # url_key göreli bir slug ("...-p-sr26060354") -> base_url ile birleştirilecek.
+  url: {strategy: direct_path, path: "_source.url_key", modifier: prepend_base_url}

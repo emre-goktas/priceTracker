@@ -1,6 +1,5 @@
-httpx
+curl_cffi
 minio
 pyyaml
 python-dotenv
 asyncpg
-brotli
