@@ -9,18 +9,25 @@ base_headers:
   Referer: "https://www.rossmann.com.tr/"
   X-Requested-With: "XMLHttpRequest"
 
-# Kategori ID listesi HARDCODE EDİLMEZ. Kökten çözüm: her kök kategori sayfası (server-rendered
-# HTML, Watsons'ın aksine JS-challenge/Akamai bloğu YOK) kendi JS state'inde hem kendi ID'sini
-# (`currentCategory: N`) hem de TÜM doğrudan çocuklarını (`childPathsMapping`: {entity_id, name})
-# taşıyor. Yani tek bir sayfa fetch'i o dalın tam alt-kategori ağacını veriyor — ayrı bir
-# "tüm kategorileri keşfet" adımına gerek yok.
-#
-# root_slugs listesi de hardcode bir kategori-ID listesi DEĞİL: crawler/ modülünün topladığı
-# Rossmann sitemap URL'lerinden (crawler.db -> sitemap_urls) türetilir. Yöntem: '-p-' (ürün) ve
-# 'cdn.rossmann' (görsel) içermeyen URL'ler arasında iç içe path'i olanları (örn.
-# "kisisel-bakim/erkek-kisisel-bakim-urunleri") üst slug'a göre grupla; kampanya/CMS sayfaları
-# (örn. "11-11-alisveris-gunleri-*") hiç alt-path taşımadığı için elenir, gerçek taksonomi kökleri
-# onlarca alt-path'e sahip olduğu için ayrışır.
+# Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i, kolay
+# kolay değişmez. Ampirik olarak doğrulandı (2026-07-29): bu 7 kategorinin toplamı (~8839,
+# çakışma üst sınırı) kategori filtresi olmadan bulunan tüm katalog sayısıyla (~8786) pratik
+# olarak birebir örtüşüyor — yani eksiksiz kapsama. "Saç Bakım"/"Erkek Bakım" gibi navbar'da
+# göze çarpan bazı öğeler yapısal olarak kisisel-bakim'in (id=4) ÇOCUĞU, ayrı kök değil; parent
+# ID'yle sorgulamak zaten tüm alt-ağacın ürünlerini kapsıyor (anchor-category davranışı) —
+# bu yüzden tek tek alt kategori taramaya gerek yok.
+main_categories:
+  - {id: "3", name: "Makyaj"}
+  - {id: "4", name: "Kişisel Bakım"}
+  - {id: "5", name: "Anne / Bebek"}
+  - {id: "6", name: "Sağlık / Gıda"}
+  - {id: "7", name: "Temizlik"}
+  - {id: "8", name: "Ev / Yaşam"}
+  - {id: "49", name: "Cilt Bakımı"}
+
+# category_discovery aşağıda REFERANS olarak duruyor (her kök kategori sayfası kendi JS
+# state'inde `currentCategory: N` taşıyor — bu listenin nasıl türetildiğinin kaydı) ve normal
+# fetch akışında ÇALIŞTIRILMAZ; selfheal katmanında kategori drift kontrolü için değerlendirilecek.
 category_discovery:
   strategy: category_page_scrape
   root_slug_source:

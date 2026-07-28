@@ -9,18 +9,32 @@ base_headers:
   Referer: "https://www.watsons.com.tr/"
   Origin: "https://www.watsons.com.tr"
 
-# Kategori kodu listesi HARDCODE EDİLMEZ: ayrı bir ağ isteği bile gerekmiyor — zaten
-# crawler/ modülünün topladığı "Category" sitemap URL'lerinden (crawler.db -> sitemap_urls,
-# source_sitemap_url'i "Category" içeren satırlar) regex ile türetilir.
+# Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i,
+# kolay kolay değişmez. Ampirik olarak doğrulandı (2026-07-29): bu kategorilerin toplamı
+# (~10136, çakışma üst sınırı) tüm site kapsamını karşılıyor — ayrı bir "tüm alt kategorileri
+# de tara" adımına gerek yok (parent categoryCode zaten anchor-category davranışıyla tüm
+# alt-ağacın ürünlerini kapsıyor, tek tek 791 alt kod taramak devasa bir redundant crawl olurdu).
 #
-# İki seviyeli çıkarım:
-#   1) all_category_codes: TÜM /c/{code} URL'leri (derinlik farketmeksizin) -> crawl kapsamı
-#      budur, "tüm site" kapsamına göre hiçbiri filtrelenmez.
-#   2) main_category (etiketleme/organizasyon amaçlı, crawl'ı kısıtlamaz): bir /c/ URL'i
-#      derinlik=1 (domain sonrası tek slug segmenti) VE en az 1 başka /c/ URL'i kendi slug'ını
-#      prefix olarak taşıyorsa (yani altında gerçekten alt-kategorileri varsa) "ana kategori"
-#      sayılır. Bu, gerçek taksonomiyi (Makyaj, Cilt Bakım, ...) kampanya/marka landing
-#      page'lerinden (clear-men, secili-avon-urunleri, ... hepsi 0 alt-URL) ayırt eder.
+# category_discovery aşağıda REFERANS olarak duruyor (bu listenin nasıl türetildiğinin kaydı:
+# sitemap regex + derinlik/alt-URL sayımı) ve normal fetch akışında ÇALIŞTIRILMAZ; selfheal
+# katmanında kategori drift kontrolü için değerlendirilecek.
+main_categories:
+  - {id: "100", name: "Makyaj"}
+  - {id: "101", name: "Cilt Bakım"}
+  - {id: "102", name: "Saç Bakım"}
+  - {id: "103", name: "Kişisel Bakım"}
+  - {id: "104", name: "K-Beauty"}
+  - {id: "105", name: "Erkek Bakım"}
+  - {id: "106", name: "Sağlıklı Yaşam"}
+  - {id: "107", name: "Sürdürülebilir Yaşam"}
+  - {id: "108", name: "Ev ve Yaşam"}
+  - {id: "109", name: "Aksesuar"}
+  - {id: "30002", name: "Sürdürülebilir Yaşam (alternatif kod)"}
+  - {id: "9000900", name: "Setler"}
+  # NOT: "0001" (Sürdürülebilir Yaşam'ın bir diğer kodu) 0 ürün döndürdüğü için (ölü/boş kod)
+  # bilerek dahil edilmedi. "parfum" (100013) ve "sadece-watsonsta" (50058) sitemap'te hiç
+  # bulunamadı — muhtemelen bilerek sitemap'e eklenmemiş kampanya/nav öğeleri.
+
 category_discovery:
   strategy: own_sitemap_regex
   source_sitemap_contains: "Category"

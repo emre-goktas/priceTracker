@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from io import BytesIO
 
@@ -46,6 +47,24 @@ class StorageClient:
         self.ensure_bucket_exists(bucket)
         self._client.put_object(
             bucket, object_name, BytesIO(data), length=len(data), content_type=content_type
+        )
+
+    def put_json_with_meta(
+        self,
+        bucket: str,
+        object_name: str,
+        content: bytes,
+        meta: dict,
+        content_type: str = "application/json",
+    ) -> None:
+        """Ham veriyi ve yanındaki .meta.json sidecar'ı birlikte yazar (crawler/ ve core/
+        ortak arşivleme deseni: her obje + fetch_timestamp/http_status/content_hash meta'sı)."""
+        self.put_bytes(bucket, object_name, content, content_type=content_type)
+        self.put_bytes(
+            bucket,
+            f"{object_name}.meta.json",
+            json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"),
+            content_type="application/json",
         )
 
 

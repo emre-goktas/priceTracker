@@ -7,9 +7,30 @@ base_headers:
   Accept: "application/json, text/plain, */*"
   Accept-Language: "tr-TR,tr;q=0.9"
 
-# Ana kategori ID listesi HARDCODE EDİLMEZ: aşağıdaki endpoint'ten çalışma zamanında canlı
-# keşfedilir. Gratis yeni bir ana kategori ekler/kaldırırsa hiçbir müdahale gerekmez.
-category_discovery_api:
+# Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i,
+# kolay kolay değişmez. Çalışma zamanında her seferinde canlı keşfe gerek yok.
+#
+# category_discovery aşağıda REFERANS olarak duruyor (bu ID listesinin nasıl doğrulandığının
+# kaydı) ve normal fetch akışında ÇALIŞTIRILMAZ; selfheal katmanında kategori drift kontrolü
+# (Gratis yeni bir ana kategori ekler/kaldırırsa fark etmek) için değerlendirilecek.
+main_categories:
+  - {id: "501", name: "Makyaj"}
+  - {id: "502", name: "Cilt Bakım"}
+  - {id: "503", name: "Saç Bakım"}
+  - {id: "504", name: "Parfüm & Deodorant"}
+  - {id: "505", name: "Erkek Bakım"}
+  - {id: "506", name: "Kişisel Bakım"}
+  - {id: "507", name: "Anne & Bebek"}
+  - {id: "508", name: "Ev & Yaşam"}
+  - {id: "509", name: "Moda & Aksesuar"}
+  - {id: "510", name: "Süpermarket"}
+  - {id: "511", name: "Elektrikli Ürünler"}
+  - {id: "514", name: "Duş & Banyo"}
+  - {id: "515", name: "Hijyen & Bakım"}
+  - {id: "516", name: "Güneş Ürünleri"}
+
+category_discovery:
+  strategy: dynamic_api
   method: GET
   url: "https://api.gratis.retter.io/1oakekr4e/CALL/Search/homepageProducts/default"
   extra_params:

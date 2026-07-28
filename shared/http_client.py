@@ -28,6 +28,7 @@ async def fetch(
     *,
     method: str = "GET",
     headers: dict | None = None,
+    params: dict | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
@@ -45,6 +46,7 @@ async def fetch(
                 response = await session.request(
                     method,
                     url,
+                    params=params,
                     headers=request_headers,
                     timeout=timeout,
                     impersonate=impersonate,
