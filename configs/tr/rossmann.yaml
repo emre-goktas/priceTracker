@@ -1,0 +1,32 @@
+# WIP — core/ fetcher hazırlık notları (kod henüz yazılmadı)
+# Doğrulandı: düz httpx + hafif header ile 200 OK, curl_cffi/oturum cookie'si gerekmedi.
+
+base_headers:
+  Accept: "*/*"
+  Accept-Language: "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+  Referer: "https://www.rossmann.com.tr/"
+  X-Requested-With: "XMLHttpRequest"
+
+category_search_api:
+  method: GET
+  url: "https://www.rossmann.com.tr/elastic.php"
+  params:
+    categoryId: "{category_id}"
+    order: position
+    direction: asc
+    from: "{offset}"
+    size: "{limit}"   # test edilen: 12. eski rossmann_batch.py'de 60 max limit notu vardı, doğrulanacak.
+  response:
+    total_count_field: product.hits.total.value
+    items_field: product.hits.hits
+    # her hit._source içinde: barcode (EAN), price, sku, brand, name, qty, is_in_stock,
+    # mnm_stock_status, master_category_id, cat_pos_* (ürünün bağlı olduğu diğer kategori ID'leri
+    # — kategori ID keşfi için ipucu olabilir) -> hepsi tek istekte.
+
+  # ESKİ YAKLAŞIM (rossman.py, ARTIK GEREKSİZ): HTML sayfasını JSON-LD + .mnm-barcode class'ından
+  # scrape etmek gerekiyor sanılmıştı — elastic.php zaten tüm veriyi verdiği için bu adım atlanabilir.
+
+# TODO: tam categoryId listesi eksik. Elimizde sadece örnekler: categoryId=4, categoryId=5.
+# Olası kaynak: ana navigasyon menüsü HTML'i, veya örneklem ürünlerin cat_pos_*/master_category_id
+# alanlarından kategori ID'lerini toplamak.
+main_categories: []

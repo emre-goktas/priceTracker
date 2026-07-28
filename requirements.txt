@@ -3,3 +3,4 @@ minio
 pyyaml
 python-dotenv
 asyncpg
+brotli

@@ -1,0 +1,41 @@
+# WIP — core/ fetcher hazırlık notları (kod henüz yazılmadı)
+# Doğrulandı: düz httpx + hafif header ile 200 OK, curl_cffi/cookie/Akamai/QueueIT token gerekmedi.
+
+base_headers:
+  Accept: "application/json, text/plain, */*"
+  Accept-Language: "tr-TR,tr;q=0.9"
+  Referer: "https://www.watsons.com.tr/"
+  Origin: "https://www.watsons.com.tr"
+
+category_search_api:
+  method: GET
+  url: "https://api.watsons.com.tr/api/v2/wtctr-spa/search"
+  params:
+    fields: FULL
+    searchType: PRODUCT
+    categoryCode: "{category_code}"
+    lang: tr_TR
+    curr: TRY
+  # NOT: Accept header'a rağmen her zaman XML dönüyor (denendi: Accept varyantları, format=json
+  # query param, .json suffix — hiçbiri JSON'a çevirmedi). AMA XML içeriği JSON ile BİREBİR AYNI
+  # VERİ (doğrulandı) -> sorun değil, XML parse edilecek.
+  response:
+    format: xml
+    total_count_field: pagination.totalResults
+    items_field: products
+    # her <products> elemanında: code (BP_...), ean (virgülle ayrık, birden fazla EAN olabilir),
+    # price.value, stock.stockLevel/stockLevelStatus, masterBrand.name, name -> hepsi tek istekte.
+
+# product_detail_api (eski, 3. parti Insider domaini üzerinden) — category_search_api zaten tam
+# veri döndüğü için muhtemelen gerekmeyecek, referans için tutuluyor:
+product_detail_api:
+  method: GET
+  url_template: "https://recommendationv2.api.useinsider.com/10010063/tr_TR/product/details/{product_id}"
+  params:
+    details: "true"
+
+# TODO: tam categoryCode listesi eksik. Elimizde sadece örnek: "103" (kişisel-bakım).
+# Olası kaynak: zaten çektiğimiz Watsons "Category" sitemap'i (crawler.db -> sitemap_urls,
+# source sitemap = Category-tr_TR-TRY, 1299 URL) -> categoryCode'lar oradan türetilebilir mi
+# araştırılacak.
+main_categories: []

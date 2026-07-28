@@ -1,0 +1,46 @@
+# WIP — core/ fetcher hazırlık notları (kod henüz yazılmadı, core/parsers/site_plugins/gratis.py bekleniyor)
+# Doğrulandı: düz httpx + hafif header ile 200 OK, curl_cffi/cookie/Playwright gerekmedi.
+
+base_headers:
+  Accept: "application/json, text/plain, */*"
+  Accept-Language: "tr-TR,tr;q=0.9"
+
+category_search_api:
+  method: GET
+  url: "https://api.gratis.retter.io/1oakekr4e/CALL/Search/search/default"
+  extra_params:
+    __culture: tr_TR
+    __platform: WEB
+  # payload base64 encode edilip 'data' query param'ına, ayrıca '__isbase64=true' eklenir:
+  # {"query": {"from": <offset>, "size": <limit>, "filters": [{"filterId": "categories", "filterValues": ["<category_id>"]}], "searchTerm": "", "sortBy": []}}
+  response:
+    total_count_field: itemCount
+    items_field: data
+    # items içinde attributes[eanUpc] + prices{...} zaten tam geliyor -> EAN+fiyat+stok tek istekte.
+    # product_detail_api'ye (aşağıda) muhtemelen hiç gerek kalmayacak (MVP'de opsiyonel/fallback).
+
+product_detail_api:
+  method: GET
+  url_template: "https://api.gratis.retter.io/1oakekr4e/CALL/Product/getProductDetail/{product_id}"
+  extra_params:
+    __culture: tr_TR
+    __platform: WEB
+
+# NOT: Gratis'in TÜM ana kategorileri (kozmetik dışı olanlar da var — Ev & Yaşam, Süpermarket,
+# Elektrikli Ürünler, Anne & Bebek, Moda & Aksesuar). CLAUDE.md scope'u "kozmetik kategorisi"
+# olduğu için hangi ID'lerin kullanılacağına kodlama aşamasında karar verilecek.
+main_categories:
+  - {id: "501", name: "Makyaj"}
+  - {id: "502", name: "Cilt Bakım"}
+  - {id: "503", name: "Saç Bakım"}
+  - {id: "504", name: "Parfüm & Deodorant"}
+  - {id: "505", name: "Erkek Bakım"}
+  - {id: "506", name: "Kişisel Bakım"}
+  - {id: "507", name: "Anne & Bebek"}
+  - {id: "508", name: "Ev & Yaşam"}
+  - {id: "509", name: "Moda & Aksesuar"}
+  - {id: "510", name: "Süpermarket"}
+  - {id: "511", name: "Elektrikli Ürünler"}
+  - {id: "514", name: "Duş & Banyo"}
+  - {id: "515", name: "Hijyen & Bakım"}
+  - {id: "516", name: "Güneş Ürünleri"}
