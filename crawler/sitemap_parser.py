@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import io
 import json
 import sqlite3
 from datetime import date, datetime, timezone
@@ -18,29 +19,51 @@ BUCKET = "datalake"
 PLUGIN_VERSION = "0.1.0"
 GZIP_MAGIC = b"\x1f\x8b"
 
+# Bir sitemap'te önceden aktif olan URL'lerin bu orandan fazlası tek seferde
+# "kayboldu" görünürse, bunu gerçek bir diff değil şüpheli bir fetch/parse
+# anomalisi (blok, boş yanıt, site yapısı değişikliği) sayıp soft-delete'i atla.
+MASS_DEACTIVATION_SAFETY_RATIO = 0.5
 
-def _decode_body(content: bytes) -> str:
+
+def _decompress_if_needed(content: bytes) -> bytes:
     # Uzantıya değil magic byte'a bakılır: bazı siteler (örn. Watsons) gzip içeriği
     # .gz uzantısı olmayan bir URL üzerinden, content-type: application/gzip ile sunuyor.
     if content[:2] == GZIP_MAGIC:
-        content = gzip.decompress(content)
-    return content.decode("utf-8", errors="replace")
+        return gzip.decompress(content)
+    return content
 
 
 def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _extract_locs(xml_text: str) -> tuple[str, list[str]]:
-    """Sitemap XML'ini parse eder.
+def _extract_locs(content: bytes) -> tuple[str, list[str]]:
+    """Sitemap XML'ini akışlı (iterparse) parse eder; tüm DOM'u belleğe yüklemez.
+
+    Büyük sitemap dosyalarında (onbinlerce <url>) ElementTree.fromstring ile tüm
+    ağacı belleğe kurmak yerine, her elementi işledikten sonra elem.clear() ile
+    bellekten düşürülür.
 
     Döndürülen (root_tag, loc_listesi) ikilisinde root_tag 'sitemapindex' ise
     loc'lar alt sitemap adresleridir (recursion gerekir), 'urlset' ise loc'lar
     gerçek sayfa (kategori/ürün) adresleridir (leaf, recursion durur).
     """
-    root = ElementTree.fromstring(xml_text)
-    root_tag = _localname(root.tag)
-    locs = [el.text.strip() for el in root.iter() if _localname(el.tag) == "loc" and el.text]
+    root_tag: str | None = None
+    locs: list[str] = []
+
+    for event, elem in ElementTree.iterparse(io.BytesIO(content), events=("start", "end")):
+        if event == "start":
+            if root_tag is None:
+                root_tag = _localname(elem.tag)
+            continue
+
+        if _localname(elem.tag) == "loc" and elem.text:
+            locs.append(elem.text.strip())
+        elem.clear()
+
+    if root_tag is None:
+        raise ElementTree.ParseError("boş ya da geçersiz sitemap XML")
+
     return root_tag, locs
 
 
@@ -54,7 +77,11 @@ def _upsert_sitemap_urls(
     """urlset (leaf) sitemap'ten çıkan gerçek sayfa URL'lerini diff'ler.
 
     Yeni/değişmeyen URL'ler is_active=1 ile upsert edilir; artık listede
-    olmayan URL'ler silinmez, is_active=0 ile soft-delete edilir.
+    olmayan URL'ler silinmez, is_active=0 ile soft-delete edilir. Ancak
+    kütle halinde (MASS_DEACTIVATION_SAFETY_RATIO üstü) bir düşüş görülürse
+    bu büyük ihtimalle gerçek bir değişiklik değil, geçici bir blok/boş yanıt/
+    site yapı değişikliğidir — böyle bir durumda soft-delete atlanır, sadece
+    uyarı loglanır (mevcut aktif kayıtlar korunur).
     """
     existing = {
         row[0]
@@ -64,6 +91,7 @@ def _upsert_sitemap_urls(
         )
     }
     current_set = set(current_urls)
+    stale_urls = existing - current_set
 
     for url in current_urls:
         conn.execute(
@@ -78,7 +106,15 @@ def _upsert_sitemap_urls(
             (site_id, sitemap_snapshot_id, url, now, now),
         )
 
-    stale_urls = existing - current_set
+    if existing and (not current_urls or len(stale_urls) / len(existing) > MASS_DEACTIVATION_SAFETY_RATIO):
+        logger.warning(
+            f"sitemap_snapshot {sitemap_snapshot_id}: {len(stale_urls)}/{len(existing)} URL aniden "
+            "kayboldu görünüyor, muhtemelen blok/boş yanıt/site değişikliği - soft-delete ATLANDI, "
+            "mevcut aktif kayıtlar korunuyor (manuel inceleme gerekebilir)"
+        )
+        conn.commit()
+        return
+
     for stale_url in stale_urls:
         conn.execute(
             "UPDATE sitemap_urls SET is_active = 0, last_seen_at = ? WHERE site_id = ? AND url = ?",
@@ -87,7 +123,7 @@ def _upsert_sitemap_urls(
 
     conn.commit()
     if stale_urls:
-        logger.info(f"{sitemap_snapshot_id}: {len(stale_urls)} URL artık listede yok, is_active=0 yapıldı")
+        logger.info(f"sitemap_snapshot {sitemap_snapshot_id}: {len(stale_urls)} URL artık listede yok, is_active=0 yapıldı")
 
 
 async def _fetch_and_archive(
@@ -102,10 +138,10 @@ async def _fetch_and_archive(
         logger.warning(f"{site.name}: sitemap fetch başarısız {url} -> {response.status_code}")
         return None
 
-    xml_text = _decode_body(response.content)
+    content = _decompress_if_needed(response.content)
 
     try:
-        root_tag, locs = _extract_locs(xml_text)
+        root_tag, locs = _extract_locs(content)
     except ElementTree.ParseError as exc:
         logger.warning(f"{site.name}: sitemap parse edilemedi {url} - {exc}")
         return None
@@ -141,7 +177,7 @@ async def _fetch_and_archive(
         "root_tag": root_tag,
     }
 
-    storage.put_bytes(BUCKET, object_name, xml_text.encode("utf-8"), content_type="application/xml")
+    storage.put_bytes(BUCKET, object_name, content, content_type="application/xml")
     storage.put_bytes(
         BUCKET,
         f"{object_name}.meta.json",
@@ -182,6 +218,11 @@ async def fetch_all_sitemaps(site: Site, site_id: int, root_sitemap_urls: list[s
     child'a (leaf urlset) kadar recursive olarak tüm sitemap dosyalarını çekip
     MinIO'ya arşivler; leaf urlset'lerdeki gerçek sayfa URL'lerini sitemap_urls
     tablosuna diff'leyerek yazar.
+
+    Kuyruktaki bir URL beklenmedik şekilde patlarsa (ör. ağ hatası, retry'ler
+    tükendi), sadece o dal loglanıp atlanır - aynı sitenin diğer kardeş
+    sitemap'leri bu çalıştırmada işlenmeye devam eder (bir sonraki çalıştırmada
+    hash tabanlı idempotency sayesinde eksik kalan kısım zaten yeniden denenir).
     """
     visited: set[str] = set()
     queue: list[tuple[str, int | None]] = [(url, None) for url in root_sitemap_urls]
@@ -192,7 +233,12 @@ async def fetch_all_sitemaps(site: Site, site_id: int, root_sitemap_urls: list[s
             continue
         visited.add(url)
 
-        result = await _fetch_and_archive(site, site_id, url, parent_id, conn)
+        try:
+            result = await _fetch_and_archive(site, site_id, url, parent_id, conn)
+        except Exception as exc:
+            logger.error(f"{site.name}: sitemap işlenirken beklenmeyen hata {url} - {exc}")
+            continue
+
         if result is None:
             continue
 
