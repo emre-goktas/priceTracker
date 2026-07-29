@@ -12,6 +12,7 @@ from crawler.db import get_connection, upsert_site
 from crawler.models import RobotsResult, Site
 from crawler.robots_parser import fetch_robots_txt
 from crawler.sitemap_parser import fetch_all_sitemaps
+from shared import http_client
 from shared.hashing import sha256_text
 from shared.logging_config import get_logger
 from shared.storage import storage
@@ -122,6 +123,15 @@ async def process_site(site: Site, site_id: int, conn: sqlite3.Connection) -> No
     await fetch_all_sitemaps(site, site_id, robots_result.sitemap_urls, conn)
 
 
+# NOT: process_site_robots/process_site coroutine'leri asyncio.gather ile "paralel"
+# çalıştırılıyor ama hepsi TEK bir sqlite3.Connection'ı (conn) paylaşıyor. Bu güvenli, çünkü
+# asyncio tek thread'li kooperatif zamanlama yapar: sqlite3'ün senkron (await'siz) execute()/
+# commit() çağrıları asla bölünmeden, tek seferde tamamlanır - iki coroutine'in aynı anda
+# gerçekten aynı anda DB'ye yazması mümkün değil, sadece I/O beklerken (await fetch(...))
+# sırayla el değiştiriyorlar. Ayrı connection açmak (WAL modunda bile) burada gereksiz ve
+# hatta gerçek kilit çekişmesi riski ekleyebilirdi.
+
+
 async def run_robots_discovery() -> None:
     sites = load_enabled_sites()
     conn = get_connection()
@@ -136,6 +146,7 @@ async def run_robots_discovery() -> None:
                 logger.error(f"{site.name}: robots.txt işlenemedi - {result}")
     finally:
         conn.close()
+        await http_client.close()
 
 
 async def run_discovery() -> None:
@@ -153,6 +164,7 @@ async def run_discovery() -> None:
                 logger.error(f"{site.name}: discovery işlenemedi - {result}")
     finally:
         conn.close()
+        await http_client.close()
 
 
 if __name__ == "__main__":

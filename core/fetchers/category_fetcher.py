@@ -5,6 +5,7 @@ import asyncio
 from core.parsers import base_parser
 from core.parsers.site_plugins import gratis, rossmann, watsons
 from core.storage import write_category_page
+from shared import http_client
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -47,13 +48,16 @@ async def fetch_site_categories(plugin) -> None:
 
 
 async def run_category_fetch() -> None:
-    results = await asyncio.gather(
-        *(fetch_site_categories(plugin) for plugin in SITE_PLUGINS),
-        return_exceptions=True,
-    )
-    for plugin, result in zip(SITE_PLUGINS, results):
-        if isinstance(result, Exception):
-            logger.error(f"{plugin.SITE_NAME}: category fetch başarısız - {result}")
+    try:
+        results = await asyncio.gather(
+            *(fetch_site_categories(plugin) for plugin in SITE_PLUGINS),
+            return_exceptions=True,
+        )
+        for plugin, result in zip(SITE_PLUGINS, results):
+            if isinstance(result, Exception):
+                logger.error(f"{plugin.SITE_NAME}: category fetch başarısız - {result}")
+    finally:
+        await http_client.close()
 
 
 if __name__ == "__main__":

@@ -80,8 +80,11 @@ def _upsert_sitemap_urls(
     olmayan URL'ler silinmez, is_active=0 ile soft-delete edilir. Ancak
     kütle halinde (MASS_DEACTIVATION_SAFETY_RATIO üstü) bir düşüş görülürse
     bu büyük ihtimalle gerçek bir değişiklik değil, geçici bir blok/boş yanıt/
-    site yapı değişikliğidir — böyle bir durumda soft-delete atlanır, sadece
-    uyarı loglanır (mevcut aktif kayıtlar korunur).
+    site yapı değişikliğidir — bu durumda BATCH'İN TAMAMI şüpheli sayılır ve
+    hiçbir satıra dokunulmaz (ne upsert ne soft-delete): güvenlik kontrolü
+    herhangi bir DB yazımından ÖNCE yapılır, sadece "eski aktif kayıtları
+    deaktive etme" değil, "şüpheli/az sayıdaki current_urls'i de aktif diye
+    yazma" riskini de önler.
     """
     existing = {
         row[0]
@@ -93,32 +96,31 @@ def _upsert_sitemap_urls(
     current_set = set(current_urls)
     stale_urls = existing - current_set
 
-    for url in current_urls:
-        conn.execute(
-            """
-            INSERT INTO sitemap_urls (site_id, sitemap_snapshot_id, url, is_active, first_seen_at, last_seen_at)
-            VALUES (?, ?, ?, 1, ?, ?)
-            ON CONFLICT(site_id, url) DO UPDATE SET
-                sitemap_snapshot_id = excluded.sitemap_snapshot_id,
-                is_active = 1,
-                last_seen_at = excluded.last_seen_at
-            """,
-            (site_id, sitemap_snapshot_id, url, now, now),
-        )
-
     if existing and (not current_urls or len(stale_urls) / len(existing) > MASS_DEACTIVATION_SAFETY_RATIO):
         logger.warning(
             f"sitemap_snapshot {sitemap_snapshot_id}: {len(stale_urls)}/{len(existing)} URL aniden "
-            "kayboldu görünüyor, muhtemelen blok/boş yanıt/site değişikliği - soft-delete ATLANDI, "
-            "mevcut aktif kayıtlar korunuyor (manuel inceleme gerekebilir)"
+            "kayboldu görünüyor, muhtemelen blok/boş yanıt/site değişikliği - TÜM batch şüpheli "
+            "sayıldı, hiçbir satır yazılmadı (mevcut aktif kayıtlar korunuyor, manuel inceleme gerekebilir)"
         )
-        conn.commit()
         return
 
-    for stale_url in stale_urls:
-        conn.execute(
+    now_pairs = [(site_id, sitemap_snapshot_id, url, now, now) for url in current_urls]
+    conn.executemany(
+        """
+        INSERT INTO sitemap_urls (site_id, sitemap_snapshot_id, url, is_active, first_seen_at, last_seen_at)
+        VALUES (?, ?, ?, 1, ?, ?)
+        ON CONFLICT(site_id, url) DO UPDATE SET
+            sitemap_snapshot_id = excluded.sitemap_snapshot_id,
+            is_active = 1,
+            last_seen_at = excluded.last_seen_at
+        """,
+        now_pairs,
+    )
+
+    if stale_urls:
+        conn.executemany(
             "UPDATE sitemap_urls SET is_active = 0, last_seen_at = ? WHERE site_id = ? AND url = ?",
-            (now, site_id, stale_url),
+            [(now, site_id, stale_url) for stale_url in stale_urls],
         )
 
     conn.commit()
