@@ -6,12 +6,125 @@
 "100": {canonical: makeup, name: "Makyaj"}
 "101": {canonical: skin_care, name: "Cilt Bakım"}
 "102": {canonical: hair_care, name: "Saç Bakım"}
-"103": {canonical: bath_body, name: "Kişisel Bakım", draft: true, note: "geniş şemsiye, gözden geçir"}
-"104": {canonical: uncategorized, name: "K-Beauty", draft: true, note: "bu bir bölge/marka etiketi, ürün tipi değil - asıl ürün tipine göre (makeup/skin_care) ayrıca sınıflandırılmalı"}
-"105": {canonical: shaving_grooming, name: "Erkek Bakım", draft: true, note: "geniş şemsiye, skin_care/hair_care/deodorant da içerebilir"}
+"103": {canonical: bath_body, name: "Kişisel Bakım", draft: true, note: "geniş şemsiye ama alt kırılımı tam biliniyor (aşağıya bak) - ürünün kendi kategori bilgisi bu alt kodlardan birine denk gelecek"}
+"104": {canonical: skin_care, name: "K-Beauty", draft: true, note: "kökeni bölge/marka etiketi ama menü kırılımı (Nemlendirici, Serum, Tonik, Yüz Temizleyici, Maske, Göz Bakım, Güneş Kremi) ve gerçek ürün örnekleri (2026-07-29) %100 skin_care çıktı - eski 'uncategorized' varsayımı yanlıştı, artık yüksek güvenle skin_care"}
+"105": {canonical: perfume_cologne, name: "Erkek Bakım", draft: true, note: "Gratis'teki gerçek dağılıma göre (aynı desen) en büyük tekil tip perfume_cologne - alt kırılımı tam biliniyor (aşağıya bak)"}
 "106": {canonical: vitamins_supplements, name: "Sağlıklı Yaşam", draft: true, note: "vitamin/takviye ağırlıklı ama ilk yardım/kondom da içerebilir - Health & Beauty kapsamında, market vertical'ı DEĞİL, ürün bazında incelt"}
 "107": {canonical: uncategorized, name: "Sürdürülebilir Yaşam", draft: true, note: "bu bir sürdürülebilirlik etiketi, ürün tipi değil"}
 "108": {canonical: uncategorized, taxonomy: home_goods, name: "Ev ve Yaşam", draft: true, note: "ürün bazında home_goods.yaml'a bak"}
 "109": {canonical: uncategorized, taxonomy: apparel_accessories, name: "Aksesuar", draft: true, note: "güneş gözlüğü/çanta/bijuteri/toka/şapka/şemsiye/külotlu çorap karışık - ürün bazında apparel_accessories.yaml'a bak"}
 "30002": {canonical: uncategorized, name: "Sürdürülebilir Yaşam (alternatif kod)", draft: true}
 "9000900": {canonical: uncategorized, name: "Setler", draft: true, note: "karışık ürün setleri, tek kategoriye sığmaz"}
+
+# --- kisisel-bakim'in (103) bilinen alt kategorileri ---
+# Kullanıcının Watsons'ta gördüğü mega-menü ekran görüntüsüyle doğrulandı (2026-07-29):
+# grup başlıkları (Parfüm ve Deodorant, Banyo, Ağız Bakım, Kadın Bakım, Epilasyon, Ayak Bakım,
+# Anne ve Bebek) ve altındaki her tek kalem, zaten çektiğimiz sitemap'teki /kisisel-bakim/{grup}/
+# {alt-tip}/c/{code} URL'lerinden birebir teyit edildi. "EN YENİLER"/"ÇOK SATANLAR" (103060/103070)
+# gerçek kategori değil, sıralama/filtre görünümü - dahil edilmedi.
+
+# grup başlıkları (umbrella, kendi çocukları net ama kendisi hâlâ karışık kalabilir)
+"220": {canonical: perfume_cologne, name: "Parfüm ve Deodorant", draft: true, note: "hem parfüm hem deodorant içeriyor, alt kodlar net"}
+"221": {canonical: bath_body, name: "Banyo"}
+"222": {canonical: oral_care, name: "Ağız Bakım"}
+"223": {canonical: feminine_sanitary, name: "Kadın Bakım"}
+"224": {canonical: shaving_grooming, name: "Epilasyon"}
+"225": {canonical: foot_care, name: "Ayak Bakım"}
+"226": {canonical: baby_bathing, name: "Anne ve Bebek"}
+
+# Parfüm ve Deodorant (220) alt tipleri
+"1089": {canonical: perfume_cologne, name: "Parfüm"}
+"1090": {canonical: deodorant_antiperspirant, name: "Deodorant"}
+"1091": {canonical: deodorant_antiperspirant, name: "Vücut Spreyleri"}
+"1092": {canonical: deodorant_antiperspirant, name: "Stick ve Roll-On"}
+"1093": {canonical: perfume_cologne, name: "Kolonya"}
+"1233": {canonical: perfume_cologne, name: "Parfüm Setleri"}
+
+# Banyo (221) alt tipleri
+"1094": {canonical: bath_body, name: "Duş Jelleri"}
+"1095": {canonical: bath_body, name: "Katı Sabun"}
+"1096": {canonical: bath_body, name: "Sıvı Sabun"}
+"1097": {canonical: bath_body, name: "Kağıt ve Islak Mendil"}
+"1098": {canonical: bath_body, name: "Pamuk"}
+"1099": {canonical: bath_body, name: "Banyo Aksesuarları"}
+"1168": {canonical: bath_body, name: "Antibakteriyel Sabun"}
+"1234": {canonical: bath_body, name: "Kulak Temizleme Çubuğu"}
+"1235": {canonical: bath_body, name: "Banyo Topu"}
+"30070": {canonical: bath_body, name: "Lif Sünger ve Keseler"}
+
+# Ağız Bakım (222) alt tipleri
+"1100": {canonical: oral_care, name: "Diş Macunu"}
+"1101": {canonical: oral_care, name: "Diş Fırçası"}
+"1102": {canonical: oral_care, name: "Diş İpi ve Ağız Bakım Suyu"}
+"1103": {canonical: oral_care, name: "Diş Bakım Ürünleri"}
+"1104": {canonical: oral_care, name: "Elektrikli Diş Fırçaları"}
+"1105": {canonical: oral_care, name: "Bebek ve Çocuk Ağız Bakım Ürünleri"}
+
+# Kadın Bakım (223) alt tipleri
+"1106": {canonical: feminine_sanitary, name: "Hijyenik Pedler"}
+"1107": {canonical: feminine_sanitary, name: "Günlük Pedler"}
+"1108": {canonical: feminine_sanitary, name: "Tampon"}
+"1109": {canonical: feminine_sanitary, name: "İntim Temizlik ve Hijyen Ürünleri"}
+"1236": {canonical: feminine_sanitary, name: "Regl Külodu"}
+"1237": {canonical: feminine_sanitary, name: "Menstrual Kap"}
+
+# Epilasyon (224) alt tipleri
+"1110": {canonical: shaving_grooming, name: "Ağda ve Ağda Bantları"}
+"1111": {canonical: shaving_grooming, name: "Tüy Dökücü ve Sarartıcı Ürünler"}
+"1112": {canonical: shaving_grooming, name: "Kadın Tıraş Bıçakları ve Tıraş Jelleri"}
+"1238": {canonical: shaving_grooming, name: "Epilasyon Jelleri"}
+
+# Ayak Bakım (225) alt tipleri
+"1114": {canonical: foot_care, name: "Ayak Bakım Ürünleri"}
+"1173": {canonical: foot_care, name: "Ayak Törpüleri"}
+"30064": {canonical: foot_care, name: "Ayak Maskeleri"}
+
+# Anne ve Bebek (226) alt tipleri
+"1115": {canonical: baby_bathing, name: "Bebek Islak Havlu"}
+"1117": {canonical: baby_bathing, name: "Banyo Bakımı ve Şampuan"}
+"1118": {canonical: skin_care, name: "Bebek ve Çocuk Güneş Koruyucuları", draft: true, note: "sunscreen -> skin_care ile eşleştirildi, tartışmaya açık"}
+
+# --- erkek-bakim'in (105) bilinen alt kategorileri ---
+# Kullanıcının Watsons menüsüyle doğrulandı (2026-07-29), sitemap'teki /erkek-bakim/{grup}/
+# {alt-tip}/c/{code} URL'lerinden birebir teyit edildi. "Çok Satanlar"/"En Yeniler"
+# (105060/105070) gerçek kategori değil, filtre görünümü - dahil edilmedi.
+
+# grup başlıkları
+"228": {canonical: skin_care, name: "Erkek Cilt ve Kişisel Bakım", draft: true, note: "karışık grup, alt kodlar net"}
+"229": {canonical: perfume_cologne, name: "Erkek Parfüm ve Deodorant", draft: true, note: "hem parfüm hem deodorant içeriyor, alt kodlar net"}
+"244": {canonical: hair_care, name: "Erkek Saç Sakal Bakım"}
+"227": {canonical: shaving_grooming, name: "Tıraş"}
+
+# Erkek Cilt ve Kişisel Bakım (228) alt tipleri
+"1180": {canonical: skin_care, name: "Erkek Bakım Setleri", draft: true, note: "karışık hediye seti, tek tipe oturmuyor"}
+"1128": {canonical: skin_care, name: "Erkek Cilt Bakım"}
+"1169": {canonical: uncategorized, name: "Diğer Erkek Bakım Ürünleri", draft: true, note: "catch-all, tek tipe oturmuyor"}
+"1179": {canonical: bath_body, name: "Erkek Duş Jelleri"}
+"1178": {canonical: shaving_grooming, name: "Erkek Tüy Dökücü Kremler"}
+
+# Erkek Parfüm ve Deodorant (229) alt tipleri
+"1132": {canonical: perfume_cologne, name: "Parfüm"}
+"1133": {canonical: deodorant_antiperspirant, name: "Deodorant"}
+"1134": {canonical: deodorant_antiperspirant, name: "Stick ve Roll-On"}
+
+# Erkek Saç Sakal Bakım (244) alt tipleri
+"1174": {canonical: hair_care, name: "Erkek Şampuan"}
+"1175": {canonical: hair_care, name: "Erkek Saç Şekillendirici"}
+"1176": {canonical: hair_care, name: "Sakal Bakım & Sakal Serumları"}
+"1177": {canonical: hair_care, name: "Erkek Saç & Sakal Boyası"}
+
+# Tıraş (227) alt tipleri
+"1121": {canonical: shaving_grooming, name: "Kullan & At Tıraş Bıçakları"}
+"1122": {canonical: shaving_grooming, name: "Yedek Tıraş Bıçakları"}
+"1123": {canonical: shaving_grooming, name: "Tıraş Jeli ve Köpüğü"}
+"1124": {canonical: shaving_grooming, name: "Tıraş Kolonyası / Losyon"}
+"1125": {canonical: shaving_grooming, name: "Tıraş Makineleri"}
+"1171": {canonical: shaving_grooming, name: "Tıraş Bıçakları"}
+
+# --- k-beauty'nin (104) sitemap'te bulunabilen alt kategorileri ---
+# NOT: k-beauty/c/{slug} biçiminde iki tanesi (göz bakım, güneş ürünleri) sayısal değil
+# metinsel bir "kod" taşıyor (muhtemelen Watsons sitemap'inde bir veri hatası) - bunlar
+# url_regex ile eşleşmediği için otomatik keşfe dahil olmuyor, listeye eklenmedi. Sadece
+# geçerli sayısal koda sahip olan aşağıdaki iki tanesi eklendi.
+"1208": {canonical: skin_care, name: "K-Beauty Cilt Bakım Ürünleri", note: "cilt-bakim (101) altında da ayrıca listeleniyor"}
+"1041010": {canonical: skin_care, name: "K-Beauty Güneş Bakım Ürünleri"}
