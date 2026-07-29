@@ -1,0 +1,24 @@
+# Gratis kategori ID'si -> configs/taxonomy/health_beauty.yaml canonical ID eşlemesi.
+# İLK TASLAK — "draft: true" olan satırlar belirsiz/umbrella kategoriler, insan gözden
+# geçirmesi gerekiyor (bkz. CLAUDE.md: kategori/eşleme kararları LLM ile otomatik verilmez).
+#
+# NOT: Bu eşleme main_categories (crawl için kullandığımız geniş ana kategori) seviyesinde.
+# Tek bir ana kategori altında birden fazla ürün tipi olabilir (örn. 504 hem parfüm hem
+# deodorant içerir) — asıl hassas eşleme matching/normalize.py'de ürünün kendi category_path'ine
+# bakılarak (Google'ın "Deodorant" / "Perfume" gibi en spesifik segmentiyle) yapılacak. Buradaki
+# tablo o ürün-bazlı eşlemenin bulamadığı durumlarda kullanılacak bir varsayılan/fallback.
+
+"501": {canonical: makeup, name: "Makyaj"}
+"502": {canonical: skin_care, name: "Cilt Bakım"}
+"503": {canonical: hair_care, name: "Saç Bakım"}
+"504": {canonical: perfume_cologne, name: "Parfüm & Deodorant", draft: true, note: "hem parfüm hem deodorant içeriyor, ürün bazında ayırt edilmeli"}
+"505": {canonical: shaving_grooming, name: "Erkek Bakım", draft: true, note: "geniş şemsiye, skin_care/hair_care/deodorant da içerebilir"}
+"506": {canonical: bath_body, name: "Kişisel Bakım", draft: true, note: "örnek ürün 'Disk Pamuk' (cotton pad) - tam oturmuyor, gözden geçir"}
+"507": {canonical: baby_bathing, name: "Anne & Bebek", draft: true, note: "diapering ürünleri de içerebilir"}
+"508": {canonical: uncategorized, taxonomy: home_goods, name: "Ev & Yaşam", draft: true, note: "gözlemlenen: çöp poşeti (garbage_bags) - ama çok daha geniş bir sekme, ürün bazında home_goods.yaml'a bak"}
+"509": {canonical: uncategorized, taxonomy: apparel_accessories, name: "Moda & Aksesuar", draft: true, note: "güneş gözlüğü/çanta/bijuteri/toka/külotlu çorap karışık - ürün bazında apparel_accessories.yaml'a bak"}
+"510": {canonical: uncategorized, taxonomy: food_beverage, name: "Süpermarket", draft: true, note: "gerçek market/gıda vertical'ı, ürün bazında food_beverage.yaml'a bak (henüz sınırlı kapsam)"}
+"511": {canonical: cosmetic_tools, name: "Elektrikli Ürünler", draft: true, note: "saç şekillendirme aletleri içeriyor, kısmen uyar"}
+"514": {canonical: bath_body, name: "Duş & Banyo"}
+"515": {canonical: first_aid, name: "Hijyen & Bakım", draft: true, note: "İlk Yardım & Medikal ürünler görüldü - Health & Beauty kapsamında (Google: Health Care > First Aid), market vertical'ı DEĞİL; saf hijyen ürünleri de içerebilir, ürün bazında incelt"}
+"516": {canonical: skin_care, name: "Güneş Ürünleri", note: "Google'da Sunscreen, Skin Care altında"}

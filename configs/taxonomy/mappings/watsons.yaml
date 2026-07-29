@@ -1,0 +1,17 @@
+# Watsons kategori ID'si -> configs/taxonomy/health_beauty.yaml canonical ID eşlemesi.
+# İLK TASLAK — "draft: true" olan satırlar belirsiz/umbrella kategoriler, insan gözden
+# geçirmesi gerekiyor. NOT: bu eşleme main_categories seviyesinde, hassas eşleme
+# matching/normalize.py'de ürünün kendi categoryNameHierarchy'sine bakılarak yapılacak.
+
+"100": {canonical: makeup, name: "Makyaj"}
+"101": {canonical: skin_care, name: "Cilt Bakım"}
+"102": {canonical: hair_care, name: "Saç Bakım"}
+"103": {canonical: bath_body, name: "Kişisel Bakım", draft: true, note: "geniş şemsiye, gözden geçir"}
+"104": {canonical: uncategorized, name: "K-Beauty", draft: true, note: "bu bir bölge/marka etiketi, ürün tipi değil - asıl ürün tipine göre (makeup/skin_care) ayrıca sınıflandırılmalı"}
+"105": {canonical: shaving_grooming, name: "Erkek Bakım", draft: true, note: "geniş şemsiye, skin_care/hair_care/deodorant da içerebilir"}
+"106": {canonical: vitamins_supplements, name: "Sağlıklı Yaşam", draft: true, note: "vitamin/takviye ağırlıklı ama ilk yardım/kondom da içerebilir - Health & Beauty kapsamında, market vertical'ı DEĞİL, ürün bazında incelt"}
+"107": {canonical: uncategorized, name: "Sürdürülebilir Yaşam", draft: true, note: "bu bir sürdürülebilirlik etiketi, ürün tipi değil"}
+"108": {canonical: uncategorized, taxonomy: home_goods, name: "Ev ve Yaşam", draft: true, note: "ürün bazında home_goods.yaml'a bak"}
+"109": {canonical: uncategorized, taxonomy: apparel_accessories, name: "Aksesuar", draft: true, note: "güneş gözlüğü/çanta/bijuteri/toka/şapka/şemsiye/külotlu çorap karışık - ürün bazında apparel_accessories.yaml'a bak"}
+"30002": {canonical: uncategorized, name: "Sürdürülebilir Yaşam (alternatif kod)", draft: true}
+"9000900": {canonical: uncategorized, name: "Setler", draft: true, note: "karışık ürün setleri, tek kategoriye sığmaz"}

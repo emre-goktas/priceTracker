@@ -76,7 +76,7 @@ Kaybolmamak için bucket yapısı sıkı disiplinle korunmalı. Üst seviye ayr�
 datalake/                      # bucket adı
   robots/{site}/{YYYY-MM-DD}/{sha256}.txt
   sitemaps/{site}/{YYYY-MM-DD}/{sha256}.xml
-  category/{site}/{YYYY-MM-DD}/{category_id}/{sha256}.json
+  category/{site}/{YYYY-MM-DD}/{category_id}_{category_name_slug}/{sha256}.json
   product/{site}/{YYYY-MM-DD}/{product_id}/{sha256}.json
 ```
 
@@ -84,6 +84,7 @@ Kurallar:
 - Her obje için yanında bir `.meta.json` sidecar dosyası olmalı: `{fetch_timestamp, site, plugin_version, http_status, content_hash}`
 - Dosya adı her zaman content hash (sha256) içermeli — aynı gün tekrar çekimde üzerine yazma, versiyon geçmişi korunsun
 - robots.txt **de** ham olarak buraya yazılır (sadece sitemap değil) — çünkü endpoint/parametre yapısı hakkında ipucu içeriyor (bkz. Disallow/Allow pattern analizi)
+- `category/` altında `{category_id}` tek başına siteye özel, anlamsız bir sayısal koddur — klasör adına okunabilir isim de eklenir (`core/storage.py`'deki `slugify`, Türkçe karakterleri sadeleştirir: "Ev & Yaşam" -> "ev_yasam"). Kanonik id->isim eşlemesi tek doğruluk kaynağı olarak `configs/tr/{site}.yaml` -> `main_categories`'te yaşar; MinIO'daki isim sadece okunabilirlik için bir kopyadır, oradan değiştirilmez.
 - Yeni bir prefix/klasör seviyesi eklenecekse önce bu dosyada güncellenmeli, sonra kodda
 
 ---

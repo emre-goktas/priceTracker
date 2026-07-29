@@ -19,29 +19,31 @@ async def fetch_site_categories(plugin) -> None:
     # Kategori ID'leri artık configs/tr/{site}.yaml'daki main_categories'ten statik okunur
     # (veritabanı/API key'i, kolay değişmez). category_discovery orada referans olarak duruyor,
     # normal akışta çalıştırılmaz — selfheal katmanında drift kontrolü için değerlendirilecek.
-    categories = [entry["id"] for entry in config["main_categories"]]
+    categories = [(entry["id"], entry["name"]) for entry in config["main_categories"]]
     delay_seconds = config.get("rate_limit", {}).get("delay_seconds", 1.5)
     logger.info(f"{site}: {len(categories)} ana kategori (config'ten)")
 
-    for category_id in categories:
-        if category_id != categories[0]:
+    for index, (category_id, category_name) in enumerate(categories):
+        if index > 0:
             await asyncio.sleep(delay_seconds)  # kategoriler arası da bekleme - art arda istek WAF'ı tetikleyebiliyor
 
         try:
             page_count = 0
             blocked_count = 0
             async for page, status, content in base_parser.fetch_category_pages(config, category_id):
-                object_name = write_category_page(site, category_id, page, status, content)
+                object_name = write_category_page(site, category_id, category_name, page, status, content)
                 page_count += 1
                 if status == 200:
-                    logger.info(f"{site}: kategori {category_id} sayfa {page} arşivlendi -> {object_name}")
+                    logger.info(f"{site}: kategori {category_id} ({category_name}) sayfa {page} arşivlendi -> {object_name}")
                 else:
                     blocked_count += 1
-                    logger.warning(f"{site}: kategori {category_id} sayfa {page} HTTP {status} (BLOK/HATA) -> {object_name}")
+                    logger.warning(
+                        f"{site}: kategori {category_id} ({category_name}) sayfa {page} HTTP {status} (BLOK/HATA) -> {object_name}"
+                    )
             status_note = f", {blocked_count} bloklu/hatalı" if blocked_count else ""
-            logger.info(f"{site}: kategori {category_id} tamamlandı ({page_count} sayfa{status_note})")
+            logger.info(f"{site}: kategori {category_id} ({category_name}) tamamlandı ({page_count} sayfa{status_note})")
         except Exception as exc:
-            logger.error(f"{site}: kategori {category_id} işlenemedi - {exc}")
+            logger.error(f"{site}: kategori {category_id} ({category_name}) işlenemedi - {exc}")
 
 
 async def run_category_fetch() -> None:

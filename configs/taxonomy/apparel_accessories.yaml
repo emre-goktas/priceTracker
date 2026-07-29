@@ -1,0 +1,42 @@
+# Kanonik ürün taksonomisi — APPAREL & ACCESSORIES vertical'ı (kozmetik değil, ama drogeri
+# sitelerinin "Aksesuar/Moda" gibi sekmelerinde fiilen satılan ürünler — güneş gözlüğü, çanta,
+# külotlu çorap, toka, bijuteri). Google Product Taxonomy'nin ilgili dallarından uyarlanmıştır.
+#
+# NOT: Google'da bu ürünler "Health & Beauty" ile hiç ilgisi olmayan tamamen ayrı bir üst
+# kategoride ("Apparel & Accessories") duruyor — biz "kozmetik sekmesindeyiz" diye kendimizi
+# sadece Health & Beauty dalıyla sınırlamıyoruz; ürün gerçekte neyse Google'ın doğru dalından
+# ID'sini alıyoruz. Aynı prensip: configs/taxonomy/ altında vertical başına ayrı dosya.
+
+source:
+  name: "Google Product Taxonomy"
+  version: "2021-09-21"
+  root: "Apparel & Accessories"
+
+categories:
+  - id: sunglasses
+    google_taxonomy_id: 178
+    display_name: {tr: "Güneş Gözlüğü", en: "Sunglasses"}
+
+  - id: hats
+    google_taxonomy_id: 173
+    display_name: {tr: "Şapka", en: "Hats"}
+
+  - id: jewelry
+    google_taxonomy_id: 188
+    display_name: {tr: "Bijuteri / Takı", en: "Jewelry"}
+
+  - id: hosiery
+    google_taxonomy_id: 215
+    display_name: {tr: "Külotlu Çorap", en: "Hosiery"}
+
+  - id: hair_accessories
+    google_taxonomy_id: 171
+    display_name: {tr: "Saç Aksesuarları (Toka vb.)", en: "Hair Accessories"}
+
+  - id: handbags
+    google_taxonomy_id: 3032
+    display_name: {tr: "Çanta", en: "Handbags"}
+
+  - id: uncategorized
+    google_taxonomy_id: null
+    display_name: {tr: "Diğer / Sınıflandırılmamış", en: "Uncategorized"}

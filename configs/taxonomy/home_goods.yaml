@@ -1,0 +1,31 @@
+# Kanonik ürün taksonomisi — HOME & GARDEN vertical'ı (drogeri sitelerinin "Ev & Yaşam" gibi
+# sekmelerinde fiilen satılan ürünler — çöp poşeti, termos, şemsiye). Google Product
+# Taxonomy'nin ilgili dallarından uyarlanmıştır. Şemsiye ilginç biçimde Google'da "Home &
+# Garden" altında, "Apparel" değil — sitelerin kendi iç tutarsızlığı gibi Google'ın da kendi
+# mantığı var, biz ürüne göre doğru dalı seçiyoruz.
+
+source:
+  name: "Google Product Taxonomy"
+  version: "2021-09-21"
+  root: "Home & Garden"
+
+categories:
+  - id: garbage_bags
+    google_taxonomy_id: 2374
+    display_name: {tr: "Çöp Poşeti", en: "Garbage Bags"}
+
+  - id: thermoses
+    google_taxonomy_id: 3800
+    display_name: {tr: "Termos", en: "Thermoses"}
+
+  - id: umbrellas
+    google_taxonomy_id: 4358
+    display_name: {tr: "Şemsiye", en: "Parasols & Rain Umbrellas"}
+
+  - id: uncategorized
+    google_taxonomy_id: null
+    display_name: {tr: "Diğer / Sınıflandırılmamış", en: "Uncategorized"}
+    note: >
+      "Ev & Yaşam" sekmesi gözlemlediğimiz 3 üründen çok daha geniş (mutfak gereçleri, kağıt
+      ürünleri, mumlar vb.) — bu dosya sadece somut olarak gördüğümüz ürünler için ilk taslak,
+      kapsamlı bir "Home & Garden" taksonomisi gerçek bir ev/yaşam sitesi eklendiğinde genişletilir.

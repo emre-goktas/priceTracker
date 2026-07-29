@@ -1,0 +1,24 @@
+# Kanonik ürün taksonomisi — FOOD, BEVERAGES & TOBACCO vertical'ı (drogeri sitelerinin
+# "Süpermarket"/"Sağlık & Gıda" gibi sekmelerinde fiilen satılan gıda ürünleri — çay, organik
+# bar). Google Product Taxonomy'nin ilgili dallarından uyarlanmıştır.
+
+source:
+  name: "Google Product Taxonomy"
+  version: "2021-09-21"
+  root: "Food, Beverages & Tobacco"
+
+categories:
+  - id: tea_infusions
+    google_taxonomy_id: 2073
+    display_name: {tr: "Çay", en: "Tea & Infusions"}
+
+  - id: granola_cereal_bars
+    google_taxonomy_id: 5747
+    display_name: {tr: "Tahıl / Organik Bar", en: "Cereal & Granola Bars"}
+
+  - id: uncategorized
+    google_taxonomy_id: null
+    display_name: {tr: "Diğer / Sınıflandırılmamış", en: "Uncategorized"}
+    note: >
+      Gözlemlediğimiz sadece 2 ürün tipi — kapsamlı bir gıda taksonomisi gerçek bir market
+      sitesi eklendiğinde genişletilir.
