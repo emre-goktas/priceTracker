@@ -8,6 +8,7 @@ from xml.etree import ElementTree
 
 from core.parsers import html_parser
 from shared.http_client import fetch
+from shared.jsonpath import resolve_path
 
 # Bu modül site adı bilmez: sadece configs/tr/{site}.yaml'da tanımlı ayarları uygular.
 #
@@ -17,24 +18,6 @@ from shared.http_client import fetch
 # çağrılmıyorlardı. configs/tr/{site}.yaml'daki category_discovery blokları referans/geçmiş
 # kaydı olarak duruyor; ileride bir kategori-listeleme endpoint'i selfheal katmanında
 # değerlendirilmek istenirse oradan yeniden inşa edilir.
-
-
-def resolve_path(obj: object, path: str) -> object:
-    """Nokta ile ayrılmış path'i (örn. 'prices.discountedPrice') sırayla çözer."""
-    current = obj
-    for part in path.split("."):
-        if current is None:
-            return None
-        if isinstance(current, list):
-            try:
-                current = current[int(part)]
-            except (ValueError, IndexError):
-                return None
-        elif isinstance(current, dict):
-            current = current.get(part)
-        else:
-            return None
-    return current
 
 
 def _localname(tag: str) -> str:

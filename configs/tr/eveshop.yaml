@@ -99,6 +99,22 @@ category_search_api:
     # items_path YOK: format html_regex_json olduğunda extract edilen liste doğrudan "items"
     # sayılır (bkz. base_parser.parse_response_body / fetch_category_pages).
 
+# raw_html_extraction: category_search_api'deki extract_regex'ten (sadece x-labels-data/fiyat)
+# FARKLI bir amaç için - matching/duckdb_pipeline.py arşivlenmiş ham HTML'i DuckDB'ye landing
+# yaparken barkod (x-variants-data) ve ürün URL'sini de aynı sayfadan çıkarmak için kullanır.
+# core/ ve matching/ birbirini import etmediği için (bkz. CLAUDE.md) regex'in kendisi burada,
+# config'te tek doğruluk kaynağı olarak yaşıyor - her iki modül de kendi extraction kodunda
+# buradan okur, birbirinin Python kodunu import etmez.
+raw_html_extraction:
+  # Barkod/sku/fiyat içeren blok - hem kategori sayfasında (class='x-variants-data', tek
+  # tırnak) hem ürün detay sayfasında (class="variant-selects", çift tırnak) aynı yapı, farklı
+  # tırnak stili - ikisini de yakalayan regex (doğrulandı, 2026-07-30).
+  variant_block_regex: "<script type=['\"]application/json['\"]>\\s*(\\[.*?\\])\\s*</script>"
+  # xVariantSelect(...) çağrısındaki ürün URL path'i + product_id çifti (virgülle ayrık,
+  # bitişik argümanlar) - x-labels-data.product_id ile eşleşir (doğrulandı).
+  product_url_regex: "'(/products/[a-zA-Z0-9\\-]+)',\\s*'(\\d+)'"
+  # Join key: x-labels-data.variant_id == variant_block'un "id" alanı (doğrulandı, 18/18).
+
 # field_mapping burada BİLEREK YOK. Diğer sitelerde de field_mapping henüz hiçbir kod tarafından
 # tüketilmiyor (matching/normalize.py boş stub) - ileride o modül inşa edilirken Eveshop'un ham
 # HTML'inden hem x-labels-data hem x-variants-data'yı okuyup variant_id üzerinden birleştirecek

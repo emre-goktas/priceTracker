@@ -1,0 +1,274 @@
+from __future__ import annotations
+
+import html as html_module
+import json
+import re
+import tempfile
+from collections import defaultdict
+from pathlib import Path
+
+import duckdb
+import yaml
+
+from shared.jsonpath import resolve_path
+from shared.logging_config import get_logger
+from shared.storage import storage
+
+# matching/ core/ birbirini import etmez (bkz. CLAUDE.md) - bu modül configs/tr/{site}.yaml'ı
+# (veri, kod değil) okur ve MinIO'daki ham arşivi kendi başına parse eder. Eveshop'un HTML
+# extraction regex'leri core/parsers/site_plugins/eveshop.py'de DE var (fetch-time kullanım
+# için) - kod paylaşılmıyor ama regex pattern'in kendisi configs/tr/eveshop.yaml'da tek
+# doğruluk kaynağı, iki modül de oradan okur.
+
+logger = get_logger(__name__)
+
+DB_PATH = Path(__file__).resolve().parent / "pricebot.duckdb"
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs" / "tr"
+BUCKET = "datalake"
+JSON_SITES = ["gratis", "watsons", "rossmann"]
+
+# Bazı siteler (örn. Rossmann/Magento) 1-e-çok ilişkileri (bir ürünün üye olduğu HER kategori
+# için ayrı bir alan, örn. "_source.cat_pos_1837") tek satırda yüzlerce sütuna yayarak
+# kodluyor - bu geniş/wide tabloda saçma sayıda sütuna yol açar (doğrulandı: Rossmann'da 1187).
+# _REPEATING_GROUP_MIN_MEMBERS eşiğinin üzerinde (aynı önek + sayısal sonek) key ailesi
+# görülürse otomatik olarak ayrı bir ilişki/child tabloya taşınır (bkz. _split_repeating_groups)
+# - site adı hardcode edilmeden, veri şekline bakarak. Küçük aileler (örn. name1/name2, 2 üye)
+# eşiğin altında kalır, normal sütun olarak durur - kasıtlı ayrı alanlar oldukları için.
+_REPEATING_GROUP_MIN_MEMBERS = 10
+_SUFFIX_RE = re.compile(r"^(.*?)(\d+)$")
+
+
+def load_site_config(site: str) -> dict:
+    return yaml.safe_load((CONFIG_DIR / f"{site}.yaml").read_text(encoding="utf-8"))
+
+
+def flatten(obj: object, prefix: str = "", out: dict | None = None) -> dict:
+    """Nested dict'leri nokta ile ayrılmış düz sütun adlarına açar (örn. 'attributes.eanUpc') -
+    field_mapping'teki path'lerle birebir aynı isim çıkar, normalize.py'de doğrudan kullanılabilir.
+    Listeler AÇILMAZ (olduğu gibi kalır) - DuckDB native LIST/STRUCT destekliyor, satır sayısını
+    değiştirecek bir "explode" burada istenmiyor (ham veri = 1 ürün = 1 satır)."""
+    if out is None:
+        out = {}
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            full_key = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                flatten(value, full_key, out)
+            else:
+                out[full_key] = value
+    return out
+
+
+def _list_archive_objects(site: str, extension: str) -> list[str]:
+    prefix = f"category/{site}/"
+    return [
+        o.object_name
+        for o in storage._client.list_objects(BUCKET, prefix=prefix, recursive=True)
+        if o.object_name.endswith(f".{extension}") and not o.object_name.endswith(".meta.json")
+    ]
+
+
+def _read_object(object_name: str) -> bytes:
+    return storage._client.get_object(BUCKET, object_name).read()
+
+
+def _provenance(object_name: str) -> dict:
+    """category/{site}/{date}/{category_folder}/{hash}.ext yolundan izlenebilirlik alanları -
+    ham tabloda hangi kategori/tarih/dosyadan geldiği kaybolmasın diye her satıra eklenir."""
+    parts = object_name.split("/")
+    return {
+        "_source_object": object_name,
+        "_fetch_date": parts[2] if len(parts) > 2 else None,
+        "_category_folder": parts[3] if len(parts) > 3 else None,
+    }
+
+
+def load_json_site(site: str) -> int:
+    """Gratis/Watsons/Rossmann gibi JSON API döndüren siteler için genel yükleyici - site adı
+    hardcode değil, configs/tr/{site}.yaml'daki items_path'e göre çalışır."""
+    config = load_site_config(site)
+    items_path = config["category_search_api"]["response"].get("items_path")
+
+    rows: list[dict] = []
+    skipped = 0
+    for object_name in _list_archive_objects(site, "json"):
+        try:
+            data = json.loads(_read_object(object_name))
+        except json.JSONDecodeError:
+            # örn. Watsons bazen XML dönüyor (format: json_or_xml, bkz. watsons.yaml) - bu
+            # landing adımı sadece JSON kapsıyor, XML fallback'i şimdilik bilerek atlanıyor.
+            skipped += 1
+            continue
+
+        items = resolve_path(data, items_path) if items_path else data
+        if not isinstance(items, list):
+            continue
+
+        prov = _provenance(object_name)
+        for item in items:
+            if isinstance(item, dict):
+                rows.append({**flatten(item), **prov})
+
+    if skipped:
+        logger.warning(f"{site}: {skipped} dosya JSON olarak parse edilemedi (muhtemelen XML), atlandı")
+
+    return _write_to_duckdb(site, rows)
+
+
+def parse_eveshop_html(html: str, extract_regex: str, variant_block_regex: str, product_url_regex: str) -> list[dict]:
+    """Eveshop kategori sayfası HTML'inden 3 ayrı gömülü bloğu çıkarıp variant_id/product_id
+    üzerinden birleştirir (doğrulanmış join key'ler, bkz. configs/tr/eveshop.yaml notu)."""
+    labels: list[dict] = []
+    for match in re.finditer(extract_regex, html, re.DOTALL):
+        try:
+            parsed = json.loads(html_module.unescape(match.group(1)))
+        except json.JSONDecodeError:
+            continue
+        labels.extend(parsed if isinstance(parsed, list) else [parsed])
+
+    variants_by_id: dict[object, dict] = {}
+    for match in re.finditer(variant_block_regex, html, re.DOTALL):
+        try:
+            parsed = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+        for variant in parsed if isinstance(parsed, list) else [parsed]:
+            if isinstance(variant, dict) and "id" in variant:
+                variants_by_id[variant["id"]] = variant
+
+    url_by_product_id = {int(pid): path for path, pid in re.findall(product_url_regex, html, re.DOTALL)}
+
+    merged = []
+    for label in labels:
+        if not isinstance(label, dict):
+            continue
+        row = dict(label)
+        variant = variants_by_id.get(label.get("variant_id"))
+        if variant:
+            for key, value in variant.items():
+                row[f"variant.{key}"] = value
+        url = url_by_product_id.get(label.get("product_id"))
+        if url:
+            row["product_url"] = url
+        merged.append(row)
+    return merged
+
+
+def load_eveshop() -> int:
+    config = load_site_config("eveshop")
+    extract_regex = config["category_search_api"]["response"]["extract_regex"]
+    variant_block_regex = config["raw_html_extraction"]["variant_block_regex"]
+    product_url_regex = config["raw_html_extraction"]["product_url_regex"]
+
+    rows: list[dict] = []
+    for object_name in _list_archive_objects("eveshop", "html"):
+        html = _read_object(object_name).decode("utf-8", errors="replace")
+        prov = _provenance(object_name)
+        for item in parse_eveshop_html(html, extract_regex, variant_block_regex, product_url_regex):
+            rows.append({**flatten(item), **prov})
+
+    return _write_to_duckdb("eveshop", rows)
+
+
+def _slugify_prefix(prefix: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", prefix).strip("_").lower()
+    return slug or "group"
+
+
+def _split_repeating_groups(rows: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Aynı önek + sayısal sonekle biten (>= _REPEATING_GROUP_MIN_MEMBERS) key ailelerini
+    ana satırlardan çıkarıp ayrı child kayıt listelerine taşır. Döner: (temizlenmiş ana
+    satırlar, {aile_slug: [{_row_id, suffix, value}, ...]})."""
+    all_keys: set[str] = set()
+    for row in rows:
+        all_keys.update(row.keys())
+
+    families: dict[str, list[str]] = defaultdict(list)
+    for key in all_keys:
+        match = _SUFFIX_RE.match(key)
+        if match:
+            families[match.group(1)].append(key)
+
+    key_to_family = {
+        key: prefix
+        for prefix, members in families.items()
+        if len(members) >= _REPEATING_GROUP_MIN_MEMBERS
+        for key in members
+    }
+    if not key_to_family:
+        return rows, {}
+
+    children: dict[str, list[dict]] = defaultdict(list)
+    cleaned_rows = []
+    for row_id, row in enumerate(rows):
+        row = {**row, "_row_id": row_id}
+        cleaned = {}
+        for key, value in row.items():
+            family_prefix = key_to_family.get(key)
+            if family_prefix is None:
+                cleaned[key] = value
+                continue
+            if value is None:
+                continue
+            suffix = key[len(family_prefix):]
+            slug = _slugify_prefix(family_prefix)
+            children[slug].append({"_row_id": row_id, "suffix": suffix, "value": value})
+        cleaned_rows.append(cleaned)
+
+    for prefix, members in families.items():
+        if len(members) >= _REPEATING_GROUP_MIN_MEMBERS:
+            logger.info(
+                f"tekrarlı grup tespit edildi: '{prefix}*' ({len(members)} üye) -> "
+                f"raw_{{site}}_{_slugify_prefix(prefix)} alt tablosuna taşınıyor"
+            )
+
+    return cleaned_rows, children
+
+
+def _load_jsonl(con: duckdb.DuckDBPyConnection, table: str, rows: list[dict]) -> None:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        tmp_path = f.name
+
+    # sample_size=-1: şemayı ÖRNEKLEMEDEN, TÜM satırları tarayarak çıkar - ürüne özel/nadir
+    # key'ler de sütun olarak kaçırılmasın (kullanıcı isteği), eksik olduğu satırlarda NULL.
+    con.execute(f"DROP TABLE IF EXISTS {table}")
+    con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_json_auto(?, sample_size=-1)", [tmp_path])
+    Path(tmp_path).unlink(missing_ok=True)
+
+
+def _write_to_duckdb(site: str, rows: list[dict]) -> int:
+    if not rows:
+        logger.warning(f"{site}: hiç satır bulunamadı, tablo oluşturulmadı")
+        return 0
+
+    main_rows, child_groups = _split_repeating_groups(rows)
+    if not child_groups:
+        main_rows = [{**row, "_row_id": i} for i, row in enumerate(rows)]
+
+    con = duckdb.connect(str(DB_PATH))
+    table = f"raw_{site}"
+    _load_jsonl(con, table, main_rows)
+    count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    col_count = len(con.execute(f"DESCRIBE {table}").fetchall())
+    logger.info(f"{site}: {count} satır, {col_count} sütun -> {table}")
+
+    for slug, child_rows in child_groups.items():
+        child_table = f"raw_{site}_{slug}"
+        _load_jsonl(con, child_table, child_rows)
+        child_count = con.execute(f"SELECT COUNT(*) FROM {child_table}").fetchone()[0]
+        logger.info(f"{site}: {child_count} satır -> {child_table} (child, _row_id ile {table}'a bağlı)")
+
+    con.close()
+    return count
+
+
+def load_all() -> None:
+    for site in JSON_SITES:
+        load_json_site(site)
+    load_eveshop()
+
+
+if __name__ == "__main__":
+    load_all()
