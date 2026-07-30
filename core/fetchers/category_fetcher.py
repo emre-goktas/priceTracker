@@ -3,14 +3,14 @@ from __future__ import annotations
 import asyncio
 
 from core.parsers import base_parser
-from core.parsers.site_plugins import gratis, rossmann, watsons
+from core.parsers.site_plugins import eveshop, gratis, rossmann, watsons
 from core.storage import write_category_page
 from shared import http_client
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-SITE_PLUGINS = [gratis, watsons, rossmann]
+SITE_PLUGINS = [gratis, watsons, rossmann, eveshop]
 
 
 async def fetch_site_categories(plugin) -> None:
@@ -22,6 +22,11 @@ async def fetch_site_categories(plugin) -> None:
     # normal akışta çalıştırılmaz — selfheal katmanında drift kontrolü için değerlendirilecek.
     categories = [(entry["id"], entry["name"]) for entry in config["main_categories"]]
     delay_seconds = config.get("rate_limit", {}).get("delay_seconds", 1.5)
+    # Varsayılan JSON (Gratis/Watsons/Rossmann'ın kategori API yanıtı) - HTML kazıyan siteler
+    # (Eveshop) configs/tr/{site}.yaml -> archive ile override eder (bkz. core/storage.py).
+    archive_cfg = config.get("archive", {})
+    archive_extension = archive_cfg.get("extension", "json")
+    archive_content_type = archive_cfg.get("content_type", "application/json")
     logger.info(f"{site}: {len(categories)} ana kategori (config'ten)")
 
     for index, (category_id, category_name) in enumerate(categories):
@@ -32,7 +37,10 @@ async def fetch_site_categories(plugin) -> None:
             page_count = 0
             blocked_count = 0
             async for page, status, content in base_parser.fetch_category_pages(config, category_id):
-                object_name = write_category_page(site, category_id, category_name, page, status, content)
+                object_name = write_category_page(
+                    site, category_id, category_name, page, status, content,
+                    extension=archive_extension, content_type=archive_content_type,
+                )
                 page_count += 1
                 if status == 200:
                     logger.info(f"{site}: kategori {category_id} ({category_name}) sayfa {page} arşivlendi -> {object_name}")

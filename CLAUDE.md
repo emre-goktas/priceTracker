@@ -2,7 +2,9 @@
 
 ## Proje Özeti
 
-Türk e-ticaret kozmetik sitelerinden (başlangıçta Gratis, Rossmann, Watsons) fiyat verisi toplayan, ürünleri EAN/GTIN + fuzzy matching ile eşleştiren, kendi kendini onarabilen (self-healing) bir fiyat takip sistemi. Uzun vadeli hedef: çoklu coğrafyaya (AB, ABD, Latin Amerika, Rusya, MENA) ve sosyal medya alert/publish katmanına genişlemek — ancak **şu anki geliştirme kapsamı sadece TR + 3 site + kozmetik kategorisi**. Genişleme, mimari bu 3 site ile uçtan uca stabil çalışana kadar başlamayacak.
+Türk e-ticaret kozmetik sitelerinden (Gratis, Rossmann, Watsons, Eveshop) fiyat verisi toplayan, ürünleri EAN/GTIN + fuzzy matching ile eşleştiren, kendi kendini onarabilen (self-healing) bir fiyat takip sistemi. Uzun vadeli hedef: çoklu coğrafyaya (AB, ABD, Latin Amerika, Rusya, MENA) ve sosyal medya alert/publish katmanına genişlemek — ancak **şu anki geliştirme kapsamı sadece TR + bu 4 site + kozmetik kategorisi**. Genişleme, mimari bu 4 site ile uçtan uca stabil çalışana kadar başlamayacak.
+
+Eveshop (2026-07-30), diğer 3'ü uçtan uca stabil olmadan eklendi — bilinçli bir istisna: Shopify altyapısı JSON API değil HTML kazıma gerektirdiği için mimarinin plugin sınırlarını (bkz. `core/parsers/html_parser.py`) erken test etmek amaçlandı. Yeni bir 5. site eklenmeden önce yine bu 4'ünün stabil çalıştığından emin olunmalı.
 
 
 ---
@@ -31,10 +33,11 @@ price-bot/
 │   └── cli.py
 │
 ├── core/                        # fetch + parse + Postgres yazım
-│   ├── fetchers/                 # category_fetcher.py, product_fetcher.py
+│   ├── fetchers/                 # category_fetcher.py (tüm siteler), product_fetcher.py (opsiyonel — bkz. not)
 │   ├── parsers/
-│   │   ├── base_parser.py        # ortak interface (BaseSiteParser)
-│   │   └── site_plugins/          # gratis.py, rossmann.py, watsons.py — PLUGIN KATMANI
+│   │   ├── base_parser.py        # ortak interface + JSON/XML/HTML-regex pagination engine
+│   │   ├── html_parser.py        # genel amaçlı: HTML'e gömülü JSON'u regex ile çıkarma (Shopify-tipi temalar için)
+│   │   └── site_plugins/          # gratis.py, rossmann.py, watsons.py, eveshop.py — PLUGIN KATMANI
 │   ├── storage.py                # MinIO client wrapper
 │   └── db.py                     # Postgres bağlantı
 │
@@ -186,7 +189,8 @@ Pool kullan (`llm_diagnosis_pool`, slot=2-3) — LLM çağrılarının eş zaman
 
 ## Kod Yazarken Dikkat Edilecekler
 
-- Her yeni site: sadece `configs/sites.yaml` + `configs/tr/{site}.yaml` + `core/parsers/site_plugins/{site}.py` — çekirdek kodda değişiklik olmamalı
+- Her yeni site: sadece `configs/sites.yaml` + `configs/tr/{site}.yaml` + `core/parsers/site_plugins/{site}.py` — çekirdek kodda site adı hardcode edilmemeli. İstisna: `base_parser.py`/`storage.py`'a YENİ, config'ten okunan, site-agnostik bir yetenek eklemek (örn. Eveshop için eklenen `format: html_regex_json`, `zero_indexed` pagination, `archive.extension`) plugin mimarisini ihlal etmez — ölçüt "site adı if/else olarak mı geçiyor" (yasak) vs "yeni bir config anahtarı mı yorumlanıyor" (serbest)
+- `product_fetcher.py` her site için zorunlu değil: sadece kategori taraması EAN/barkodun TAMAMINI vermiyorsa (örn. barkod ayrı bir ürün sayfasında/varyantında) devreye girer. Eveshop'ta kategori sayfası (bkz. `configs/tr/eveshop.yaml` başındaki not) hem fiyatı hem barkodu tek istekte verdiği ve ürünler tek-varyantlı olduğu için bilerek kullanılmadı — yeni bir site eklenirken önce bu kontrol yapılmalı, doğrudan product_fetcher'a el atılmamalı
 - HTTP istekleri her zaman `shared/http_client.py` üzerinden (ortak retry/backoff), doğrudan `requests`/`httpx` çağrısı yapılmamalı
 - Fiyat parse ederken site-özel format farklarına dikkat (string "129,90 TL" vs kuruş cinsinden integer vs float) — bu mantık sadece ilgili `site_plugins/{site}.py` içinde kalır
 - Yeni bir MinIO prefix/klasör seviyesi eklenecekse önce bu dosya güncellenir

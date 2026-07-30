@@ -1,0 +1,106 @@
+# Eveshop fetch-özel config. Kapsam: sitenin TAMAMI (kategori filtresi yok).
+# Altyapı: Shopify (Gratis/Watsons/Rossmann'dan farklı - JSON API yok, HTML kazıma gerekiyor,
+# WAF/Cloudflare korumalı -> curl_cffi impersonate=chrome120 zorunlu, bkz. shared/http_client.py).
+#
+# ÖNEMLİ - product_fetcher.py bilerek KULLANILMIYOR (CLAUDE.md'de tanımlı dosya boş kalıyor):
+# Kategori sayfası HTML'inde ürün kartı başına 2 ayrı gömülü JSON bloğu var:
+#   1) x-labels-data attribute'u -> fiyat/kampanya (eve_price, price, product_id, variant_id)
+#   2) x-variants-data class'lı div içindeki <script type='application/json'> -> barkod, sku,
+#      variant id (x-labels-data.variant_id ile birebir eşleşiyor, doğrulandı: eveshop_test.html
+#      üzerinde 18/18 kart)
+# Yani kategori taraması TEK BAŞINA fiyat+barkod+sku'nun tamamını veriyor. Ayrıca canlı bir ürün
+# sayfası (/products/{handle}) çekilip doğrulandı: aynı yapı orada da var ama SADECE o ürünün
+# kendi varyantı için - ekstra bilgi getirmiyor. 3277 ürünlük gerçek örneklemde (raw_json/eveshop,
+# /products/{handle}.js çıktısı) TÜMÜ tam olarak 1 varyanta sahipti (0/3277 çok-varyantlı) - yani
+# Eveshop'ta ton/renk farkı ayrı ürün/handle olarak modelleniyor, Shopify'ın klasik "tek üründe
+# çoklu varyant" deseni yok. Bu yüzden "varyant tamamlama" için ayrı ürün HTML fetch'ine gerek
+# kalmıyor -> ~14.735 ürüne tek tek istek atıp WAF riski büyütmenin veri kazancı yok. Bu koşullar
+# değişirse (çok-varyantlı ürün keşfedilirse) product_fetcher.py burada devreye girer.
+#
+# NOT - DÜZELTME (2026-07-30, aynı gün içinde): Burada önceden "/products/{handle}.js
+# endpoint'inde (Kaynak C) barkod VE fiyat 0/3277, kullanılamaz" yazıyordu - bu, eski/statik bir
+# dosya örneklemine (raw_json/eveshop/, tarihi belirsiz bir önceki scrape) dayanıyordu. Aynı gün
+# içinde CANLI olarak yeniden test edildi: endpoint şeması değişmiş (product_type -> type gibi
+# alan adı farkları da var) ve şu anda barkod DA, fiyat DA dolu geliyor (6 farklı kategoriden
+# örnekle doğrulandı). Yani bu endpoint zaman içinde tutarsız/değişken davranmış olabilir -
+# "kullanılamaz" iddiası yanlıştı, düzeltildi.
+#
+# Yine de bu config Kaynak C'yi FİYAT/BARKOD için KULLANMIYOR (yukarıdaki gerekçe hâlâ geçerli:
+# kategori taraması zaten tek istekte hepsini veriyor, ekstra ~7367 istekle WAF riski büyütmenin
+# anlamı yok). Kaynak C'nin gerçek faydası başka bir alanda çıktı: `type` alanı temiz bir
+# kategori hiyerarşisi veriyor ("Eve Genel Hiyerarşi > RENKLİ KOZMETİK > GÖZ ÜRÜNLERİ" gibi) -
+# bu, configs/taxonomy/mappings/eveshop.yaml'ı inşa etmek için (Gratis'in attributes.categories'i
+# gibi) örnekleme amacıyla kullanıldı. Sürekli veri toplama akışının (bu dosyanın konusu) parçası
+# değil, bir defalık taksonomi keşfi içindi.
+
+base_headers:
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+  Accept-Language: "tr-TR,tr;q=0.9"
+
+# Diğer sitelerde yok (varsayılan: json/application-json, bkz. core/storage.py) - Eveshop ham
+# yanıtı HTML olduğu için MinIO'ya .html/text-html olarak arşivlenmeli, .json/application-json
+# yanıltıcı olurdu.
+archive:
+  extension: html
+  content_type: text/html
+
+# Sayfalar/kategoriler arası bekleme + retry — hardcode değil, buradan okunur (bkz.
+# core/parsers/base_parser.py). Diğer sitelerle aynı temkinli varsayılanlar; Eveshop'a özel
+# bir WAF-blok gözlemi henüz yok (küçük ölçekli testte hiç 403 alınmadı) ama Cloudflare arkasında
+# olduğu bilindiği için ihtiyatlı başlanıyor.
+rate_limit:
+  delay_seconds: 1.5
+  max_retries: 3
+  retry_backoff_seconds: 2.0
+
+# main_categories - kullanıcı tarafından siteye bakılarak doğrulandı (2026-07-30, nav menüsündeki
+# gerçek ana kategoriler - önceki İLK GEÇİŞ heuristik 16'lı liste, nav'da olmayan tahmini
+# slug'lar içeriyordu (gida-icecek, hijyen-urunleri, cinsel-saglik vb.) - yerine bu 9 geçti).
+# Her 9 URL de canlıda tek tek doğrulandı (2026-07-30): hepsi HTTP 200, sayfa 1'de 18 ürün.
+#
+# "cok-satan-urunler" (Çok Satan Ürünler) diğer 8'in aksine bir taksonomi dalı değil, kürate
+# edilmiş/algoritmik bir "best sellers" koleksiyonu - muhtemelen diğer 8 kategoriyle üründe
+# örtüşüyor (aynı ürün iki kategoriden de taranabilir). Bu veri kaybı yaratmaz (aynı ürün iki
+# kez arşivlenir, matching/normalize.py aşamasında content_hash/product_id ile dedupe edilir)
+# ama crawl hacmini bir miktar artırır - bilinçli kabul edildi, kullanıcı onayladı.
+#
+# TAM KAPSAM (bu 9 kategorinin toplamının sitemap'teki ~14735 ürünün tamamını kapsayıp
+# kapsamadığı) henüz ayrıca doğrulanmadı - Shopify collection'ları Rossmann/Watsons'taki gibi
+# anchor-category garantisi vermez (ayrı tag gruplarıdır, bir ürün hiçbir ana kategoriye
+# etiketlenmemiş olabilir). Gerekirse ileride crawl sonrası benzersiz product_id sayımıyla
+# kontrol edilip eksik kalan varsa leaf-level slug eklenir.
+main_categories:
+  - {id: "makyaj", name: "Makyaj"}
+  - {id: "cilt-bakimi", name: "Cilt Bakım"}
+  - {id: "sac-bakimi", name: "Saç Bakım"}
+  - {id: "parfum-deodorant", name: "Parfüm & Deodorant"}
+  - {id: "kisisel-bakim", name: "Kişisel Bakım"}
+  - {id: "erkek-bakim", name: "Erkek Bakım"}
+  - {id: "anne-bebek", name: "Anne & Bebek"}
+  - {id: "ev-yasam", name: "Ev & Yaşam"}
+  - {id: "cok-satan-urunler", name: "Çok Satan Ürünler"}
+
+category_search_api:
+  method: GET
+  url: "https://www.eveshop.com.tr/collections/{category_id}"
+  params:
+    page: "{page}"
+  pagination:
+    page_param: page
+    zero_indexed: false   # Shopify collection sayfaları page=1'den başlar (page=0 değil)
+    # page_size YOK - Eveshop kaç ürün/sayfa gösterdiğini kendi belirliyor (gözlemlendi: 18),
+    # bizim limit dayatmamız mümkün değil, page_size sadece rate-limit hesaplarında kullanılmıyor.
+  response:
+    format: html_regex_json
+    # Doğrulandı (eveshop_test.html, /collections/makyaj?page=2): 18/18 üründe eşleşti.
+    # HTML entity escape'li tek tırnak içinde bir JSON array - html_parser.extract_all_json_blocks
+    # html.unescape ile çözüp parse ediyor.
+    extract_regex: "x-labels-data='(\\[.*?\\])'"
+    # items_path YOK: format html_regex_json olduğunda extract edilen liste doğrudan "items"
+    # sayılır (bkz. base_parser.parse_response_body / fetch_category_pages).
+
+# field_mapping burada BİLEREK YOK. Diğer sitelerde de field_mapping henüz hiçbir kod tarafından
+# tüketilmiyor (matching/normalize.py boş stub) - ileride o modül inşa edilirken Eveshop'un ham
+# HTML'inden hem x-labels-data hem x-variants-data'yı okuyup variant_id üzerinden birleştirecek
+# (doğrulanmış join key: x-labels-data.variant_id == x-variants-data script'indeki "id").
+# O aşamaya kadar burada yanlış/eksik bir şema iddia etmek yerine boş bırakmak tercih edildi.

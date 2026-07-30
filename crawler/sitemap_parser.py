@@ -22,6 +22,15 @@ GZIP_MAGIC = b"\x1f\x8b"
 # Bir sitemap'te önceden aktif olan URL'lerin bu orandan fazlası tek seferde
 # "kayboldu" görünürse, bunu gerçek bir diff değil şüpheli bir fetch/parse
 # anomalisi (blok, boş yanıt, site yapısı değişikliği) sayıp soft-delete'i atla.
+#
+# TODO (refactor'da tekrar düşün, 2026-07-30): Bu eşik, _extract_locs'taki gerçek bir
+# parser bug'ını (image:loc'ların sayfa URL'i sanılması, bkz. git geçmişi) düzelttiğimizde
+# Rossmann için kendi kendini onarmayı ENGELLEDİ (gerçek oran %73-78, eşiği aştı) - o site
+# manuel bir one-off script'le (bkz. proje hafızası/commit geçmişi) düzeltildi, kalıcı bir
+# çözüm değil. İleride "bilinen bir kod değişikliğinden kaynaklanan kütlesel diff" ile
+# "gerçek bot-bloğu/arıza" senaryolarını ayırt edecek bir mekanizma (örn. CLI'da açık bir
+# --force/--reason bayrağı) düşünülmeli - şu anki tek yol kodun kendisine dokunmadan DB'yi
+# elle düzeltmek, bu kırılgan ve tekrarlanabilir değil.
 MASS_DEACTIVATION_SAFETY_RATIO = 0.5
 
 
@@ -47,17 +56,28 @@ def _extract_locs(content: bytes) -> tuple[str, list[str]]:
     Döndürülen (root_tag, loc_listesi) ikilisinde root_tag 'sitemapindex' ise
     loc'lar alt sitemap adresleridir (recursion gerekir), 'urlset' ise loc'lar
     gerçek sayfa (kategori/ürün) adresleridir (leaf, recursion durur).
+
+    SADECE <url>/<sitemap>'in DOĞRUDAN çocuğu olan <loc> alınır. Google'ın image/video
+    sitemap eklentisi (`xmlns:image`/`xmlns:video`) <url> içine `<image:image><image:loc>...`
+    gibi CDN görsel/video URL'leri gömer - bunlar da namespace'siz local-name'de "loc" olduğu
+    için önceden (ata kontrolü yokken) sayfa URL'iymiş gibi karışıyordu (örn. Gratis'te ~2x,
+    Rossmann'da ~3.76x şişme - ampirik olarak doğrulandı, 2026-07-30). Ebeveyn takibi bunu ayırt eder.
     """
     root_tag: str | None = None
     locs: list[str] = []
+    ancestors: list[str] = []
 
     for event, elem in ElementTree.iterparse(io.BytesIO(content), events=("start", "end")):
+        tag = _localname(elem.tag)
         if event == "start":
             if root_tag is None:
-                root_tag = _localname(elem.tag)
+                root_tag = tag
+            ancestors.append(tag)
             continue
 
-        if _localname(elem.tag) == "loc" and elem.text:
+        ancestors.pop()  # kendini çıkar - kalan üstteki eleman gerçek ebeveyn
+        parent_tag = ancestors[-1] if ancestors else None
+        if tag == "loc" and elem.text and parent_tag in ("url", "sitemap"):
             locs.append(elem.text.strip())
         elem.clear()
 

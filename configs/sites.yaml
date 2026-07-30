@@ -13,3 +13,8 @@ sites:
     base_url: https://www.watsons.com.tr
     country: TR
     enabled: true
+
+  - name: eveshop
+    base_url: https://www.eveshop.com.tr
+    country: TR
+    enabled: true

@@ -1,0 +1,82 @@
+# Eveshop kategori -> configs/taxonomy/health_beauty.yaml canonical ID eşlemesi.
+# İLK TASLAK — "draft: true" olan satırlar belirsiz/umbrella kategoriler, insan gözden
+# geçirmesi gerekiyor (bkz. CLAUDE.md).
+#
+# METODOLOJİ FARKI (Gratis/Watsons/Rossmann'dan): O sitelerde ürünün kendi category_path'i
+# doğrudan kategori API yanıtında geliyordu (tam popülasyon sayılabiliyordu, örn. Gratis
+# "toplam 855" gibi kesin sayılar). Eveshop'un kategori sayfası (x-labels-data/x-variants-data)
+# HİÇBİR category/type alanı içermiyor (bkz. configs/tr/eveshop.yaml). Bu yüzden buradaki
+# category_path_overrides, `/products/{handle}.js` endpoint'inin `type` alanından (örn.
+# "Eve Genel Hiyerarşi > RENKLİ KOZMETİK > GÖZ ÜRÜNLERİ") 9 ana kategoriye yayılmış 168 ürünlük
+# BİR ÖRNEKLEMLE (2026-07-30, tam popülasyon değil) çıkarıldı. Sayılar "gerçek dağılım" değil
+# "örneklemde gözlemlenen" - küçük hacimli alt kategoriler kaçırılmış olabilir, ileride yeni bir
+# `type` değeri görülürse bu tabloya eklenmeli.
+#
+# `type` alanının sabit kök segmenti ("Eve Genel Hiyerarşi >") eşleme anahtarından ÇIKARILDI
+# (hiç değişmiyor, bilgi taşımıyor) - anahtar format: "ANA KATEGORİ > ALT KATEGORİ". Eşleme
+# önceliği Gratis'teki gibi: matching/normalize.py önce category_path_overrides'ta tam "ANA >
+# ALT" değerini arasın, bulamazsa aşağıdaki main_categories (crawl kategorisi) fallback'ine düşsün.
+
+# --- main_categories (crawl için kullanılan 9 ana kategori, configs/tr/eveshop.yaml) ---
+makyaj: {canonical: makeup, name: "Makyaj"}
+cilt-bakimi: {canonical: skin_care, name: "Cilt Bakım"}
+sac-bakimi: {canonical: hair_care, name: "Saç Bakım"}
+parfum-deodorant: {canonical: perfume_cologne, name: "Parfüm & Deodorant", draft: true, note: "örneklemde EDT(5)+DEO(7) karışık - bkz. category_path_overrides"}
+kisisel-bakim: {canonical: feminine_sanitary, name: "Kişisel Bakım", draft: true, note: "geniş şemsiye, örneklemde en büyük pay bayan hijyen (5/18) ama diş bakımı/duş jeli/aksesuar da karışık - bkz. category_path_overrides"}
+erkek-bakim: {canonical: shaving_grooming, name: "Erkek Bakım", draft: true, note: "örneklemde tıraş baskın (8/12) ama 'özel erkek ürünleri' (4/12) muhtemelen condoms - bkz. category_path_overrides"}
+anne-bebek: {canonical: baby_bathing, name: "Anne & Bebek", draft: true, note: "diapering ürünleri de içerebilir, örneklem küçük (10)"}
+ev-yasam: {canonical: uncategorized, taxonomy: home_goods, name: "Ev & Yaşam", draft: true, note: "örneklem çok küçük (2) - oda/oto kokusu gözlemlendi, home_goods.yaml'a bak"}
+cok-satan-urunler: {canonical: uncategorized, name: "Çok Satan Ürünler", draft: true, note: "kürate edilmiş/algoritmik liste, gerçek bir taksonomi dalı DEĞİL - diğer 8 kategoriyle örtüşüyor, ürünün kendi type'ına göre sınıflandırılmalı, bu fallback pratikte kullanılmamalı"}
+
+# --- category_path_overrides (`type` alanının "ANA KATEGORİ > ALT KATEGORİ" kısmı) ---
+# Sayılar 2026-07-30 örneklemesinde (168 istek, 9 kategoriye yayılı) gözlemlenen adet - kesin
+# popülasyon değil, bkz. yukarıdaki metodoloji notu.
+category_path_overrides:
+  # RENKLİ KOZMETİK (makyaj crawl kategorisinde baskın ana tip)
+  "RENKLİ KOZMETİK > DUDAK ÜRÜNLERİ": {canonical: makeup, count: 17}
+  "RENKLİ KOZMETİK > YÜZ ÜRÜNLERİ": {canonical: makeup, count: 15}
+  "RENKLİ KOZMETİK > TIRNAK ÜRÜNLERİ": {canonical: nail_care, count: 16}
+  "RENKLİ KOZMETİK > GÖZ ÜRÜNLERİ": {canonical: makeup, count: 12}
+
+  # KİŞİSEL BAKIM YARDIMCILARI (aletler/aksesuarlar, ürün değil)
+  "KİŞİSEL BAKIM YARDIMCILARI > MAKYAJ YARDIMCILARI": {canonical: cosmetic_tools, count: 8}
+  "KİŞİSEL BAKIM YARDIMCILARI > BAKIM YARDIMCILARI": {canonical: cosmetic_tools, count: 5, draft: true, note: "isim belirsiz, hangi bakım türü olduğu net değil"}
+
+  # AKSESUAR & TEKSTİL (Health & Beauty kapsamı DIŞI - Gratis'in Moda & Aksesuar'ıyla aynı mantık)
+  "AKSESUAR & TEKSTİL > AKSESUAR": {canonical: uncategorized, taxonomy: apparel_accessories, count: 1, note: "çok düşük hacim (örneklemde 1), apparel_accessories.yaml'a bak"}
+
+  # CİLT BAKIM ÜRÜNLERİ
+  "CİLT BAKIM ÜRÜNLERİ > YÜZ BAKIM ÜRÜNLERİ": {canonical: skin_care, count: 9}
+  "CİLT BAKIM ÜRÜNLERİ > EPİLASYON": {canonical: shaving_grooming, count: 4}
+  "CİLT BAKIM ÜRÜNLERİ > GÜNEŞ ÜRÜNLERİ": {canonical: skin_care, count: 4, note: "Google'da Sunscreen, Skin Care altında (Gratis 516 ile aynı mantık)"}
+  "CİLT BAKIM ÜRÜNLERİ > VÜCUT BAKIM": {canonical: bath_body, count: 3}
+  "CİLT BAKIM ÜRÜNLERİ > AYAK BAKIMI": {canonical: foot_care, count: 1}
+  "CİLT BAKIM ÜRÜNLERİ > DUDAK BAKIMI": {canonical: skin_care, count: 1, note: "dudak kremi/balm - bakım ürünü, RENKLİ KOZMETİK'teki dudak makyajından ayrı"}
+
+  # SAÇ BAKIM ÜRÜNLERİ
+  "SAÇ BAKIM ÜRÜNLERİ > SAÇ BOYASI": {canonical: hair_care, count: 8}
+  "SAÇ BAKIM ÜRÜNLERİ > SAÇ BAKIM ÜRÜNLERİ": {canonical: hair_care, count: 7, note: "alt kategori adı ana kategoriyle aynı - genel/karışık saç bakım kovası"}
+  "SAÇ BAKIM ÜRÜNLERİ > ŞAMPUAN": {canonical: hair_care, count: 2}
+  "SAÇ BAKIM ÜRÜNLERİ > SAÇ ŞEKİLLENDİRİCİ": {canonical: hair_care, count: 1}
+
+  # SAĞLIK & HİJYEN ÜRÜNLERİ / BANYO & VÜCUT BAKIM / AĞIZ BAKIM ÜRÜNLERİ (kisisel-bakim crawl kategorisinden)
+  "SAĞLIK & HİJYEN ÜRÜNLERİ > BAYAN HİJYEN ÜRÜNLERİ": {canonical: feminine_sanitary, count: 5}
+  "BANYO & VÜCUT BAKIM > DUŞ JELİ": {canonical: bath_body, count: 3}
+  "BANYO & VÜCUT BAKIM > BANYO YARDIMCILARI": {canonical: bath_body, count: 1, draft: true, note: "alet mi ürün mü belirsiz (kese/sünger olabilir), cosmetic_tools da olabilir"}
+  "AĞIZ BAKIM ÜRÜNLERİ > DİŞ FIRÇASI": {canonical: oral_care, count: 3}
+  "AĞIZ BAKIM ÜRÜNLERİ > DİŞ MACUNU": {canonical: oral_care, count: 3}
+
+  # EDT&DEO ÜRÜNLERİ (parfum-deodorant crawl kategorisi)
+  "EDT&DEO ÜRÜNLERİ > DEO": {canonical: deodorant_antiperspirant, count: 9}
+  "EDT&DEO ÜRÜNLERİ > EDT": {canonical: perfume_cologne, count: 5}
+
+  # EV BAKIM ÜRÜNLERİ (Health & Beauty kapsamı DIŞI)
+  "EV BAKIM ÜRÜNLERİ > ODA&DOLAP&OTO KOKUSU": {canonical: uncategorized, taxonomy: home_goods, count: 2}
+
+  # ERKEK BAKIM ÜRÜNLERİ
+  "ERKEK BAKIM ÜRÜNLERİ > TRAŞ": {canonical: shaving_grooming, count: 8}
+  "ERKEK BAKIM ÜRÜNLERİ > ÖZEL ERKEK ÜRÜNLERİ": {canonical: condoms, count: 4, draft: true, note: "isimden tahmin (Gratis'in 'Erkek Bakım'ındaki Prezervatif&Kayganlaştırıcı örüntüsüyle benzer) - gerçek ürün örneğiyle DOĞRULANMADI, insan kontrolü şart"}
+
+  # ANNE& BEBEK BAKIM
+  "ANNE& BEBEK BAKIM > BEBEK KOZMETİK": {canonical: baby_bathing, count: 8}
+  "ANNE& BEBEK BAKIM > BEBEK BAKIM": {canonical: baby_bathing, count: 2, draft: true, note: "genel/karışık bebek bakım kovası, diapering içerebilir"}
