@@ -75,17 +75,9 @@ category_search_api:
     format: json
     total_count_path: "product.hits.total.value"
     items_path: "product.hits.hits"
-    # her hit, gerçek ürün verisi hit._source altında sarmalanmış (bkz. field_mapping).
+    # her hit, gerçek ürün verisi hit._source altında sarmalanmış.
 
-field_mapping:
-  ean: {strategy: direct_path, path: "_source.barcode"}
-  price: {strategy: direct_path, path: "_source.price"}
-  sku: {strategy: direct_path, path: "_source.sku"}
-  brand: {strategy: direct_path, path: "_source.brand"}
-  name: {strategy: direct_path, path: "_source.name"}
-  stock_status: {strategy: direct_path, path: "_source.mnm_stock_status"}
-  stock_qty: {strategy: direct_path, path: "_source.qty"}
-  in_stock: {strategy: direct_path, path: "_source.is_in_stock"}
-  master_category_id: {strategy: direct_path, path: "_source.master_category_id"}
-  # url_key göreli bir slug ("...-p-sr26060354") -> base_url ile birleştirilecek.
-  url: {strategy: direct_path, path: "_source.url_key", modifier: prepend_base_url}
+# matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
+# alanda. Rossmann'da bu, gerçek çoklu-kategori üyeliğinden geliyor (cat_pos_* ile aynı doğa,
+# doğrulandı 2026-07-30) - sayfalama hatası değil.
+product_id_field: "_source.id"

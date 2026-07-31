@@ -44,9 +44,10 @@ def load_site_config(site: str) -> dict:
 
 def flatten(obj: object, prefix: str = "", out: dict | None = None) -> dict:
     """Nested dict'leri nokta ile ayrılmış düz sütun adlarına açar (örn. 'attributes.eanUpc') -
-    field_mapping'teki path'lerle birebir aynı isim çıkar, normalize.py'de doğrudan kullanılabilir.
-    Listeler AÇILMAZ (olduğu gibi kalır) - DuckDB native LIST/STRUCT destekliyor, satır sayısını
-    değiştirecek bir "explode" burada istenmiyor (ham veri = 1 ürün = 1 satır)."""
+    ham JSON'daki path'le birebir aynı isim çıkar, normalize.py yazılırken DuckDB'deki
+    raw_{site}/clean_{site} tablolarından doğrudan okunabilir. Listeler AÇILMAZ (olduğu gibi
+    kalır) - DuckDB native LIST/STRUCT destekliyor, satır sayısını değiştirecek bir "explode"
+    burada istenmiyor (ham veri = 1 ürün = 1 satır)."""
     if out is None:
         out = {}
     if isinstance(obj, dict):
@@ -83,8 +84,8 @@ def _provenance(object_name: str) -> dict:
     }
 
 
-def load_json_site(site: str) -> int:
-    """Gratis/Watsons/Rossmann gibi JSON API döndüren siteler için genel yükleyici - site adı
+def collect_json_site_rows(site: str) -> list[dict]:
+    """Gratis/Watsons/Rossmann gibi JSON API döndüren siteler için genel toplayıcı - site adı
     hardcode değil, configs/tr/{site}.yaml'daki items_path'e göre çalışır."""
     config = load_site_config(site)
     items_path = config["category_search_api"]["response"].get("items_path")
@@ -112,7 +113,7 @@ def load_json_site(site: str) -> int:
     if skipped:
         logger.warning(f"{site}: {skipped} dosya JSON olarak parse edilemedi (muhtemelen XML), atlandı")
 
-    return _write_to_duckdb(site, rows)
+    return rows
 
 
 def parse_eveshop_html(html: str, extract_regex: str, variant_block_regex: str, product_url_regex: str) -> list[dict]:
@@ -154,7 +155,7 @@ def parse_eveshop_html(html: str, extract_regex: str, variant_block_regex: str, 
     return merged
 
 
-def load_eveshop() -> int:
+def collect_eveshop_rows() -> list[dict]:
     config = load_site_config("eveshop")
     extract_regex = config["category_search_api"]["response"]["extract_regex"]
     variant_block_regex = config["raw_html_extraction"]["variant_block_regex"]
@@ -167,7 +168,7 @@ def load_eveshop() -> int:
         for item in parse_eveshop_html(html, extract_regex, variant_block_regex, product_url_regex):
             rows.append({**flatten(item), **prov})
 
-    return _write_to_duckdb("eveshop", rows)
+    return rows
 
 
 def _slugify_prefix(prefix: str) -> str:
@@ -238,16 +239,24 @@ def _load_jsonl(con: duckdb.DuckDBPyConnection, table: str, rows: list[dict]) ->
     Path(tmp_path).unlink(missing_ok=True)
 
 
-def _write_to_duckdb(site: str, rows: list[dict]) -> int:
-    if not rows:
-        logger.warning(f"{site}: hiç satır bulunamadı, tablo oluşturulmadı")
-        return 0
-
+def _prepare_main_rows(rows: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
+    """_split_repeating_groups'u çalıştırır + hiç aile bulunamasa bile her satıra _row_id
+    ekler. raw_{site} VE clean_{site} AYNI (temizlenmiş) taban satırlardan beslenmeli - aksi
+    halde clean tablo hâlâ binlerce sütunluk (örn. Rossmann'ın cat_pos_*) ham satırı görür ve
+    DuckDB'nin şema çıkarımı bozulur (doğrulandı, 2026-07-30 - bkz. bug geçmişi)."""
     main_rows, child_groups = _split_repeating_groups(rows)
     if not child_groups:
         main_rows = [{**row, "_row_id": i} for i, row in enumerate(rows)]
+    return main_rows, child_groups
 
-    con = duckdb.connect(str(DB_PATH))
+
+def _write_to_duckdb(con: duckdb.DuckDBPyConnection, site: str, main_rows: list[dict], child_groups: dict[str, list[dict]]) -> int:
+    """Ham (bronze) tablo: raw_{site}. Bu fonksiyon dokunulmadan kalır - kullanıcı ham
+    tabloların olduğu gibi durmasını istedi (bkz. 2026-07-30 talebi)."""
+    if not main_rows:
+        logger.warning(f"{site}: hiç satır bulunamadı, tablo oluşturulmadı")
+        return 0
+
     table = f"raw_{site}"
     _load_jsonl(con, table, main_rows)
     count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -260,14 +269,72 @@ def _write_to_duckdb(site: str, rows: list[dict]) -> int:
         child_count = con.execute(f"SELECT COUNT(*) FROM {child_table}").fetchone()[0]
         logger.info(f"{site}: {child_count} satır -> {child_table} (child, _row_id ile {table}'a bağlı)")
 
-    con.close()
     return count
 
 
+def _leaf_only(rows: list[dict]) -> list[dict]:
+    """Herhangi bir satırda LİSTE değeri taşıyan key'leri TÜM satırlardan çıkarır - sadece
+    'leaf' (skaler: string/sayı/bool/null) key'ler sütun olur. Kullanıcı isteği (2026-07-30):
+    clean_{site} tabloları basit/analiz-hazır kalsın, iç içe/çok-değerli alanlarla uğraşmasın -
+    o alanlar ham tabloda (raw_{site}) zaten duruyor, kaybolmuyor."""
+    list_valued_keys: set[str] = set()
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, list):
+                list_valued_keys.add(key)
+    return [{k: v for k, v in row.items() if k not in list_valued_keys} for row in rows]
+
+
+def _dedupe_by_id(rows: list[dict], id_field: str) -> list[dict]:
+    """id_field bazında ilk görüleni tutar, sonrakileri atar. Doğrulandı (2026-07-30): tekrar
+    eden satırlarda içerik (fiyat dahil) birebir aynı - hangisinin tutulduğu önemli değil."""
+    seen: set = set()
+    result = []
+    for row in rows:
+        key = row.get(id_field)
+        if key is None or key not in seen:
+            if key is not None:
+                seen.add(key)
+            result.append(row)
+    return result
+
+
+def build_clean_table(con: duckdb.DuckDBPyConnection, site: str, main_rows: list[dict]) -> int:
+    """clean_{site}: sadece leaf/skaler sütunlar + product_id_field bazında dedupe edilmiş -
+    raw_{site}'a dokunmaz, ayrı/ek bir tablo (bkz. 2026-07-30 talebi). main_rows, raw_{site}
+    için de kullanılan (tekrarlı-grup ayrımı yapılmış) taban satırlar olmalı - ham/bölünmemiş
+    satırlar DEĞİL (bkz. _prepare_main_rows notu)."""
+    config = load_site_config(site)
+    id_field = config.get("product_id_field")
+    if not id_field:
+        logger.warning(f"{site}: configs/tr/{site}.yaml'da product_id_field yok, clean tablo atlanıyor")
+        return 0
+
+    leaf_rows = _leaf_only(main_rows)
+    deduped = _dedupe_by_id(leaf_rows, id_field)
+
+    table = f"clean_{site}"
+    _load_jsonl(con, table, deduped)
+    count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    col_count = len(con.execute(f"DESCRIBE {table}").fetchall())
+    logger.info(f"{site}: {len(main_rows)} ham satırdan {count} satır ({len(main_rows) - count} dedupe edildi), {col_count} sütun -> {table}")
+    return count
+
+
+def _load_site(con: duckdb.DuckDBPyConnection, site: str, rows: list[dict]) -> None:
+    main_rows, child_groups = _prepare_main_rows(rows)
+    _write_to_duckdb(con, site, main_rows, child_groups)
+    build_clean_table(con, site, main_rows)
+
+
 def load_all() -> None:
-    for site in JSON_SITES:
-        load_json_site(site)
-    load_eveshop()
+    con = duckdb.connect(str(DB_PATH))
+    try:
+        for site in JSON_SITES:
+            _load_site(con, site, collect_json_site_rows(site))
+        _load_site(con, "eveshop", collect_eveshop_rows())
+    finally:
+        con.close()
 
 
 if __name__ == "__main__":

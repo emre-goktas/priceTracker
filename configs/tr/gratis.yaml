@@ -74,17 +74,33 @@ category_search_api:
     items_path: data
     format: json
 
-# Ürün objesinden alan çıkarma — hepsi düz (dotted-path) erişim, ayrı bir çıkarım mantığı
-# gerekmiyor (doğrulandı: category_search_api'de attributes zaten düz dict, array-of-key-value
-# DEĞİL — eski/kullanılmayacak Product/getProductDetail endpoint'inde öyleydi, burada değil).
+# matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
+# alanda (flatten sonrası sütun adı). Aynı ürün, sayfalama sırasında sunucu sıralaması kayması
+# yüzünden 2 farklı sayfada çıkabiliyor (doğrulandı, 2026-07-30) - bu alan üzerinden dedupe edilir.
+product_id_field: "id"
+
+# field_mapping — 2026-08-01'de YENİDEN yazıldı (önceki sürüm bu oturumda daha erken silinmişti:
+# hiçbir kod tarafından tüketilmiyordu ve içeriği doğrulanmamıştı, bkz. proje geçmişi). Bu sefer
+# her satır gerçek veriyle doğrulandı: clean_gratis tablosu (10402 satır) + canlı sayfa + GERÇEK
+# SEPET/CHECKOUT testi (fiyat alanları için — en güçlü kanıt). confidence alanı üç seviye:
+#   verified_checkout   -> gerçek sepete eklenip sonuç doğrulandı (sadece fiyat alanları)
+#   verified_data       -> clean_gratis'teki gerçek veriyle (doluluk/değer aralığı) doğrulandı
+#   plausible_unverified -> mantıklı ama canlı sitede bizzat çapraz kontrol edilmedi
 field_mapping:
-  ean: {strategy: direct_path, path: "attributes.eanUpc"}
-  # NOT: prices.discountedPrice/normalPrice kuruş cinsinden integer gelir (52900 = 529,00 TL).
-  price: {strategy: direct_path, path: "prices.discountedPrice", unit: kurus}
-  list_price: {strategy: direct_path, path: "prices.normalPrice", unit: kurus}
-  currency: {strategy: direct_path, path: "prices.currency"}
-  stock_status: {strategy: direct_path, path: "stockStatus"}
-  name: {strategy: direct_path, path: "attributes.displayName"}
-  brand: {strategy: direct_path, path: "attributes.brand"}
-  category_path: {strategy: direct_path, path: "attributes.categories"}
-  url: {strategy: direct_path, path: "shareLink"}
+  id: {strategy: direct_path, path: "id", confidence: verified_data}
+  ean: {strategy: direct_path, path: "attributes.eanUpc", confidence: verified_data}
+  name: {strategy: direct_path, path: "attributes.displayName", confidence: verified_data}
+  brand: {strategy: direct_path, path: "attributes.brand", confidence: verified_data, note: "%100 dolu - Watsons'ın TÜMÜ BÜYÜK HARF biçiminden farklı, burada Title Case geliyor, siteler birleştirilirken normalize edilmeli"}
+  url: {strategy: direct_path, path: "shareLink", confidence: verified_data, note: "GERÇEK/çalışan URL zaten burada - id'den '/p/{id}' gibi bir formülle YENİDEN KURMAYA ÇALIŞMAYIN (test edildi, yanlış/kırık link üretir), shareLink tam SEO slug'ını zaten içeriyor"}
+  currency: {strategy: direct_path, path: "prices.currency", confidence: verified_data}
+
+  # --- Fiyat: 4 canlı örnek + GERÇEK SEPET/CHECKOUT testiyle doğrulandı (2026-08-01) ---
+  list_price_try: {strategy: direct_path, path: "prices.normalPrice", unit: kurus, confidence: verified_checkout, note: "üstü çizili referans fiyat"}
+  sale_price_try: {strategy: direct_path, path: "prices.discountedPrice", unit: kurus, confidence: verified_checkout, note: "KOŞULSUZ gerçek fiyat - schema.org'un offers.price'ı ile 3/3 canlı örnekte birebir eşleşti. Gün gün kıyaslamak (fiyat takibinin asıl amacı) için GÜVENİLİR/stabil alan bu."}
+  conditional_promo_price_try: {strategy: direct_path, path: "prices.promotionPrice", unit: kurus, confidence: verified_checkout, note: "KOŞULLU fiyat (\"Gratis Kart ile\" / \"250 TL ve Üzeri Alışverişe\" - Gratis Kart sitede alışveriş için zorunlu). sale_price_try > 250 TL ise bu fiyat TEK ÜRÜNLE bile garanti ulaşılabilir (checkout'ta doğrulandı: 838 TL ürün sepette gerçekten 209,50 TL'ye düştü, 'Promosyon Kazancınız: -628,50 TL' olarak gösterildi). sale_price_try <= 250 TL ise bu alan sadece ÖNİZLEME - sepetin geri kalanına bağlı, garanti değil (aynı ürün farklı günlerde promosyonsuz da görülebiliyor, doğrulandı). discountedText/promotionLabel metin alanları HER ZAMAN dolu geliyor (statik şablon) - promosyonun GERÇEKTEN var olup olmadığına bu metne bakarak değil, promotionPrice != discountedPrice karşılaştırmasına bakarak karar verin."}
+  discount_rate: {strategy: direct_path, path: "prices.discountRate", confidence: verified_data}
+
+  stock_status_raw: {strategy: direct_path, path: "stockStatus", confidence: verified_data, note: "4 değer: HIGH(4296)/NONE(2829)/LOW(1853)/MEDIUM(1424) - clean_gratis'te doğrulandı, toplam tutuyor"}
+  is_in_stock: {strategy: computed, formula: "stock_status_raw != 'NONE'", confidence: plausible_unverified, note: "mantıklı varsayım (NONE=stokta yok) ama canlı sitede 'tükendi' etiketiyle bizzat çapraz kontrol EDİLMEDİ - normalize.py yazılırken bir kez doğrulanmalı"}
+
+  category_path: {strategy: direct_path, path: "attributes.categories", confidence: plausible_unverified, note: "array (örn. ['Makyaj','Dudak Makyajı','Dudak Kalemi']) - configs/taxonomy/mappings/gratis.yaml'daki category_path_overrides zaten bunu kullanıyor"}

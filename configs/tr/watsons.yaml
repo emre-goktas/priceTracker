@@ -81,16 +81,7 @@ category_search_api:
     total_pages_path: "pagination.totalPages"
     items_path: "products"
 
-field_mapping:
-  code: {strategy: direct_path, path: "code"}
-  # ean bazen virgülle ayrık birden fazla değer taşıyor -> ilk değeri birincil EAN say.
-  ean: {strategy: direct_path, path: "ean", modifier: comma_split_first}
-  all_eans: {strategy: direct_path, path: "ean", modifier: comma_split_all}
-  price: {strategy: direct_path, path: "price.value"}
-  stock_status: {strategy: direct_path, path: "stock.stockLevelStatus"}
-  stock_level: {strategy: direct_path, path: "stock.stockLevel"}
-  name: {strategy: direct_path, path: "name"}
-  brand: {strategy: direct_path, path: "masterBrand.name"}
-  category_path: {strategy: direct_path, path: "categoryNameHierarchy", modifier: split_slash}
-  # url göreli döner (örn. "/nivea-.../p/BP_131804") -> base_url ile birleştirilecek.
-  url: {strategy: direct_path, path: "url", modifier: prepend_base_url}
+# matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
+# alanda. Watsons'ta bu, gerçek çoklu-kategori üyeliğinden geliyor (aynı ürün gerçekten birden
+# fazla kategoriye ait, sayfalama hatası değil - doğrulandı, 2026-07-30).
+product_id_field: "code"

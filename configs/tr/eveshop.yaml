@@ -115,8 +115,15 @@ raw_html_extraction:
   product_url_regex: "'(/products/[a-zA-Z0-9\\-]+)',\\s*'(\\d+)'"
   # Join key: x-labels-data.variant_id == variant_block'un "id" alanı (doğrulandı, 18/18).
 
-# field_mapping burada BİLEREK YOK. Diğer sitelerde de field_mapping henüz hiçbir kod tarafından
-# tüketilmiyor (matching/normalize.py boş stub) - ileride o modül inşa edilirken Eveshop'un ham
-# HTML'inden hem x-labels-data hem x-variants-data'yı okuyup variant_id üzerinden birleştirecek
-# (doğrulanmış join key: x-labels-data.variant_id == x-variants-data script'indeki "id").
-# O aşamaya kadar burada yanlış/eksik bir şema iddia etmek yerine boş bırakmak tercih edildi.
+# matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
+# alanda. Eveshop'ta tekrar KARIŞIK (2026-07-30, 422 örnek): 33'ü aynı kategoriden (sayfalama
+# gürültüsü), 389'u farklı kategoriden (gerçek örtüşme - büyük kısmı cok-satan-urunler).
+product_id_field: "product_id"
+
+# field_mapping burada BİLEREK YOK (2026-07-30: diğer 3 site'ın dosyasından da kaldırıldı -
+# hiçbir kod tarafından tüketilmiyordu, matching/normalize.py hâlâ boş stub, içeriği kısmen
+# doğrulanmamış varsayımlara dayanıyordu ve kafa karıştırıyordu). normalize.py yazılırken
+# gerçek şema artık DuckDB'deki raw_{site}/clean_{site} tablolarından çıkarılacak - Eveshop için
+# bu, ham HTML'den hem x-labels-data hem x-variants-data'yı okuyup variant_id üzerinden
+# birleştirmeyi içerir (doğrulanmış join key: x-labels-data.variant_id == x-variants-data
+# script'indeki "id" - bkz. matching/duckdb_pipeline.py'deki mevcut uygulama).
