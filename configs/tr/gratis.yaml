@@ -58,9 +58,10 @@ category_search_api:
     __platform: WEB
   # payload base64 encode edilip 'data' query param'ına, ayrıca '__isbase64=true' eklenir:
   request_style: base64_json_payload
-  # payload_template gerçek tarayıcı isteğiyle (Chrome DevTools Network, 2026-08-01) birebir
-  # eşleştirildi (inStock/filterActiveProducts/fromHomepageBestsellers eskiden YOKTU, size=100
-  # kullanıyordu - gerçek site her zaman 24 kullanıyor).
+  # payload_template gerçek tarayıcı isteğiyle (Chrome DevTools Network, 2026-08-01) eşleştirildi
+  # - inStock/filterActiveProducts/fromHomepageBestsellers eskiden hiç GÖNDERİLMİYORDU, eklendi.
+  # size alanı BİLEREK gerçek siteden farklı (site 24 kullanıyor, biz 100) - aşağıdaki pagination
+  # notuna bak, size'ın kayıp oranına etkisi yok, 100 daha az istekle aynı işi görüyor.
   #
   # sortBy KRİTİK - boş bırakılırsa (gerçek sitenin de yaptığı gibi!) Gratis'in arama motorunun
   # sıralaması KARARSIZ: aynı ürün ardışık sayfalarda tekrar edip başka ürünlerin hiç
@@ -91,8 +92,16 @@ category_search_api:
           order: asc
       filterActiveProducts: true
       fromHomepageBestsellers: false
+  # page_size=100 (24 DEĞİL - gerçek sitenin kullandığı değer, kasıtlı farklılaştırıldı):
+  # 2x2 izole test (core/debug/pagination_test.py, matching/exploration/pagination_findings.md,
+  # 2026-08-01) kanıtladı ki kayıp oranını belirleyen TEK FAKTÖR sortBy - page_size'ın ölçülebilir
+  # etkisi yok (sort YOK: size 100 -> %20.76 kayıp, size 25 -> %20.61 kayıp, neredeyse aynı; sort
+  # VAR: size 100 -> %0.02 kayıp, size 25 -> %0.17 kayıp - size 100 hatta biraz DAHA tam). Aynı
+  # kategoride (501, 4725 ürün) size=100 SADECE 48 istek gerektirirken size=25 189 istek
+  # gerektiriyordu (~4x fazla) - aynı/daha iyi sonuç için gereksiz yere Gratis'in sunucusuna
+  # fazladan yük binmesin diye 100'e geri dönüldü.
   pagination:
-    page_size: 24
+    page_size: 100
   response:
     total_count_path: itemCount
     items_path: data
