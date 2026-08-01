@@ -58,17 +58,41 @@ category_search_api:
     __platform: WEB
   # payload base64 encode edilip 'data' query param'ına, ayrıca '__isbase64=true' eklenir:
   request_style: base64_json_payload
+  # payload_template gerçek tarayıcı isteğiyle (Chrome DevTools Network, 2026-08-01) birebir
+  # eşleştirildi (inStock/filterActiveProducts/fromHomepageBestsellers eskiden YOKTU, size=100
+  # kullanıyordu - gerçek site her zaman 24 kullanıyor).
+  #
+  # sortBy KRİTİK - boş bırakılırsa (gerçek sitenin de yaptığı gibi!) Gratis'in arama motorunun
+  # sıralaması KARARSIZ: aynı ürün ardışık sayfalarda tekrar edip başka ürünlerin hiç
+  # görünmemesine sebep oluyor (doğrulandı 2026-08-01: kategori 516'da 258 üründen 54'ü
+  # kaçıyordu, 11 sayfa boyunca deterministik/tekrarlanabilir - CDN/rastgelelik değil, sıralama
+  # kararsızlığı).
+  #
+  # KESİN DOĞRULANDI (2026-08-01): `attribute: createdAt, order: asc` ile hem küçük (516,
+  # 258/258 ürün) hem EN BÜYÜK kategoride (501 Makyaj, 197 sayfa, 4725/4725 ürün) SIFIR tekrar +
+  # SIFIR kayıp - tam kod yolu (base_parser.fetch_category_pages) üzerinden test edildi, üretim
+  # gecikmesiyle (1.5s) çalıştı. Bu, GERÇEK sitenin gönderdiğinden farklı (site sortBy:[]
+  # gönderiyor) ama kasıtlı - amacımız (eksiksiz veri) normal bir kullanıcının amacından
+  # (birkaç sayfa gezip ürün bulma) farklı, kararsız sıralama onlar için sorun değil bizim için
+  # eksik veri demek. `sortBy` şeması API'nin 400 validasyon hatalarından adım adım çıkarıldı
+  # (field->attribute, order zorunlu). Kabul edilen diğer alan: displayName.keyword (createdAt
+  # tercih edildi, muhtemelen benzersiz zaman damgası - displayName'de teorik çakışma riski var).
   payload_template:
     query:
+      searchTerm: ""
       from: "{offset}"
       size: "{limit}"
       filters:
         - filterId: categories
           filterValues: ["{category_id}"]
-      searchTerm: ""
-      sortBy: []
+      inStock: false
+      sortBy:
+        - attribute: createdAt
+          order: asc
+      filterActiveProducts: true
+      fromHomepageBestsellers: false
   pagination:
-    page_size: 100
+    page_size: 24
   response:
     total_count_path: itemCount
     items_path: data

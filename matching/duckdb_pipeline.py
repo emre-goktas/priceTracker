@@ -286,11 +286,20 @@ def _leaf_only(rows: list[dict]) -> list[dict]:
 
 
 def _dedupe_by_id(rows: list[dict], id_field: str) -> list[dict]:
-    """id_field bazında ilk görüleni tutar, sonrakileri atar. Doğrulandı (2026-07-30): tekrar
-    eden satırlarda içerik (fiyat dahil) birebir aynı - hangisinin tutulduğu önemli değil."""
+    """id_field bazında EN GÜNCEL (_fetch_date en yeni) satırı tutar, eskilerini atar.
+
+    DÜZELTME (2026-08-01): Önceden "ilk görüleni tut" idi ve bu genelde zararsızdı çünkü
+    tek bir crawl içindeki tekrarların (aynı gün, sayfalama kayması) içeriği zaten birebir
+    aynıydı. Ama arşivde BİRDEN FAZLA TARİH birikince (aynı ürün 29 Temmuz VE 1 Ağustos'ta
+    arşivlenmiş) `_list_archive_objects`'in MinIO'dan aldığı liste tarih klasörüne göre
+    lexicographic (=kronolojik, eskiden yeniye) sıralı olduğu için "ilk görülen" hep EN ESKİ
+    satır oluyordu - taze bir crawl çalıştırılıp clean_gratis'e hâlâ 3 gün önceki fiyatın
+    yazıldığı canlı olarak yakalandı. Artık _fetch_date'e göre açıkça sıralanıp en yenisi
+    seçiliyor - MinIO'nun listeleme sırasına güvenilmiyor."""
+    sorted_rows = sorted(rows, key=lambda r: r.get("_fetch_date") or "", reverse=True)
     seen: set = set()
     result = []
-    for row in rows:
+    for row in sorted_rows:
         key = row.get(id_field)
         if key is None or key not in seen:
             if key is not None:
