@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from io import BytesIO
 
 from dotenv import load_dotenv
@@ -18,6 +19,11 @@ class StorageClient:
 
     crawler/ ve core/ birbirini import edemediği (loosely coupled) için MinIO
     erişimi shared/ altında tutulur; her iki modül de bu istemciyi kullanır.
+
+    Okuma tarafı (list_object_names/get_bytes) PUBLIC metot olarak burada yaşar — çağıranların
+    içerideki minio istemcisine uzanması gerekmez. Bu sadece kapsülleme meselesi değil bir hata
+    kaynağıydı: minio'nun get_object() bir urllib3 yanıtı döner ve close()+release_conn()
+    çağrılmazsa bağlantı havuzu binlerce obje okunduğunda tükenir (get_bytes bunu yapar).
     """
 
     def __init__(self) -> None:
@@ -36,6 +42,20 @@ class StorageClient:
         if not self._client.bucket_exists(bucket):
             self._client.make_bucket(bucket)
             logger.info(f"Bucket oluşturuldu: {bucket}")
+
+    def list_object_names(self, bucket: str, prefix: str) -> Iterator[str]:
+        """Verilen prefix altındaki tüm objelerin adlarını (recursive) üretir."""
+        for obj in self._client.list_objects(bucket, prefix=prefix, recursive=True):
+            yield obj.object_name
+
+    def get_bytes(self, bucket: str, object_name: str) -> bytes:
+        """Bir objenin tamamını okur ve HTTP bağlantısını havuza geri verir."""
+        response = self._client.get_object(bucket, object_name)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
 
     def put_bytes(
         self,
@@ -68,4 +88,25 @@ class StorageClient:
         )
 
 
-storage = StorageClient()
+# Tembel (lazy) singleton: modül import edilir edilmez StorageClient() kurulursa MINIO_URL
+# ortam değişkeni OLMADAN bu modülü import eden her şey (örn. `crawler/cli.py --help`, unit
+# testler, ruff dışı statik araçlar) KeyError ile patlar. İstemci ilk gerçek kullanımda kurulur.
+_singleton: StorageClient | None = None
+
+
+def get_storage() -> StorageClient:
+    global _singleton
+    if _singleton is None:
+        _singleton = StorageClient()
+    return _singleton
+
+
+class _StorageProxy:
+    """`from shared.storage import storage` çağrıları aynen çalışmaya devam etsin ama
+    gerçek bağlantı ilk öznitelik erişimine kadar kurulmasın."""
+
+    def __getattr__(self, name: str):
+        return getattr(get_storage(), name)
+
+
+storage = _StorageProxy()

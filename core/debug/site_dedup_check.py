@@ -63,7 +63,10 @@ async def run(site: str, category_id: str) -> None:
     pages = 0
     expected_total = None
 
-    async for page_no, status, content in fetch_category_pages(config, category_id):
+    stop_reason = None
+    async for result in fetch_category_pages(config, category_id):
+        page_no, status, content = result.page, result.http_status, result.content
+        stop_reason = result.stop_reason or stop_reason
         pages += 1
         if status != 200:
             logger.error(f"sayfa {page_no}: HTTP {status}, durduruluyor")
@@ -96,6 +99,7 @@ async def run(site: str, category_id: str) -> None:
     print()
     print(f"=== {site} / kategori {category_id} ===")
     print(f"sayfa sayısı        : {pages}")
+    print(f"durma nedeni         : {stop_reason}")
     print(f"beklenen toplam      : {expected_total if expected_total is not None else 'API bildirmiyor'}")
     print(f"ham çekilen          : {len(all_ids)}")
     print(f"benzersiz            : {len(unique_ids)}")

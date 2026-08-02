@@ -13,6 +13,7 @@ from crawler.models import RobotsResult, Site
 from crawler.robots_parser import fetch_robots_txt
 from crawler.sitemap_parser import fetch_all_sitemaps
 from shared import http_client
+from shared.constants import DATALAKE_BUCKET, PLUGIN_VERSION
 from shared.hashing import sha256_text
 from shared.logging_config import get_logger
 from shared.storage import storage
@@ -20,8 +21,7 @@ from shared.storage import storage
 logger = get_logger(__name__)
 
 SITES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "configs" / "sites.yaml"
-BUCKET = "datalake"
-PLUGIN_VERSION = "0.1.0"
+BUCKET = DATALAKE_BUCKET
 
 
 def load_enabled_sites() -> list[Site]:

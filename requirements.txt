@@ -4,3 +4,6 @@ pyyaml
 python-dotenv
 asyncpg
 duckdb
+# numpy doğrudan kullanılmıyor: DuckDB'nin Python skaler UDF'leri (matching/normalize.py'deki
+# tr_clean_text/tr_normalize_key/tr_size_* fonksiyonları) çalışma zamanında numpy istiyor.
+numpy

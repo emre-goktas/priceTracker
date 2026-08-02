@@ -4,11 +4,22 @@ import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from xml.etree import ElementTree
 
 from core.parsers import html_parser
 from shared.http_client import fetch
 from shared.jsonpath import resolve_path
+from shared.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+# Sayfalama için mutlak üst sınır. Normalde hiç devreye girmez (en büyük kategori, Gratis
+# 501/Makyaj, 96 sayfa) — bir sitenin sayfa parametresini yok sayıp aynı dolu sayfayı
+# tekrar tekrar döndürmesi durumunda (Shopify tipi temalarda görülen davranış) sonsuz
+# döngüyü ve sonsuz MinIO yazımını keser. configs/tr/{site}.yaml -> pagination.max_pages
+# ile site bazında değiştirilebilir.
+DEFAULT_MAX_PAGES = 500
 
 # Bu modül site adı bilmez: sadece configs/tr/{site}.yaml'da tanımlı ayarları uygular.
 #
@@ -112,68 +123,156 @@ def build_category_request(config: dict, category_id: str, offset: int = 0, limi
     return url, params
 
 
-async def fetch_category_pages(config: dict, category_id: str) -> AsyncIterator[tuple[int, int, bytes]]:
-    """Bir kategorinin tüm sayfalarını sırayla çeker. Her sayfa için
-    (sayfa_no, http_status, ham_bytes) üretir. Sayfa numarası bazlı (Watsons) ve offset
-    bazlı (Gratis/Rossmann) sayfalamayı config'teki 'pagination' alanına göre ayırt eder.
+@dataclass
+class CategoryPage:
+    """Bir kategori sayfasının çekim sonucu.
+
+    stop_reason SADECE son sayfada doludur ve çağıranın "bu kategori eksiksiz mi çekildi"
+    sorusuna cevap verebilmesi içindir — eskiden bu bilgi hiç dışarı çıkmıyordu, bu yüzden
+    WAF interstitial'ı gibi HTTP 200 dönen ama ürün içermeyen bir yanıt "kategori bitti"
+    sanılıp sessizce başarı olarak loglanabiliyordu.
+    """
+
+    page: int
+    http_status: int
+    content: bytes
+    item_count: int = 0
+    declared_total: int | None = None   # API'nin bildirdiği toplam ürün sayısı (varsa)
+    stop_reason: str | None = None
+
+
+# stop_reason değerleri:
+#   "declared_total_reached" -> API'nin bildirdiği toplama ulaşıldı (sağlıklı bitiş)
+#   "total_pages_reached"    -> API'nin bildirdiği sayfa sayısına ulaşıldı (sağlıklı bitiş)
+#   "empty_page"             -> boş sayfa geldi; toplam bildirilmiyorsa DOĞRULANAMAZ bitiş
+#   "http_error"             -> retry'ler tükendi, sayfa alınamadı (EKSİK)
+#   "max_pages"              -> güvenlik sınırına dayandı (anormal, incelenmeli)
+HEALTHY_STOP_REASONS = frozenset({"declared_total_reached", "total_pages_reached"})
+
+
+def _read_pagination_settings(config: dict) -> dict:
+    """rate_limit/pagination ayarlarını okur ve DOĞRULAR.
+
+    Config'ten gelen değerler eskiden hiç kontrol edilmiyordu: örneğin max_retries: 0
+    yazıldığında retry döngüsü hiç dönmüyor, `response` None kalıyor ve bir sonraki satır
+    AttributeError ile patlıyordu. Self-heal katmanı ileride bu dosyaları LLM ile
+    güncelleyeceği için mantıksız değerlerin sessizce üretime sızmaması kritik."""
+    api_cfg = config["category_search_api"]
+    pagination_cfg = api_cfg.get("pagination", {})
+    rate_cfg = config.get("rate_limit", {})
+
+    settings = {
+        "page_size": int(pagination_cfg.get("page_size", 60)),
+        "page_param": pagination_cfg.get("page_param"),
+        # zero_indexed=false olan siteler (Eveshop/Shopify: ?page=1'den başlar) için sayfa
+        # değeri istek anında +1 kayar; döngünün kendi 'page' sayacı (0'dan başlar, sayfa
+        # SAYISINI tutar) bundan etkilenmez.
+        "zero_indexed": pagination_cfg.get("zero_indexed", True),
+        "max_pages": int(pagination_cfg.get("max_pages", DEFAULT_MAX_PAGES)),
+        "delay_seconds": float(rate_cfg.get("delay_seconds", 1.5)),
+        "max_retries": int(rate_cfg.get("max_retries", 3)),
+        "retry_backoff_seconds": float(rate_cfg.get("retry_backoff_seconds", 2.0)),
+    }
+
+    if settings["page_size"] < 1:
+        raise ValueError(f"pagination.page_size >= 1 olmalı, config'te: {settings['page_size']}")
+    if settings["max_pages"] < 1:
+        raise ValueError(f"pagination.max_pages >= 1 olmalı, config'te: {settings['max_pages']}")
+    if settings["max_retries"] < 1:
+        raise ValueError(f"rate_limit.max_retries >= 1 olmalı, config'te: {settings['max_retries']}")
+    if settings["delay_seconds"] < 0 or settings["retry_backoff_seconds"] < 0:
+        raise ValueError("rate_limit gecikmeleri negatif olamaz")
+
+    return settings
+
+
+async def fetch_category_pages(config: dict, category_id: str) -> AsyncIterator[CategoryPage]:
+    """Bir kategorinin tüm sayfalarını sırayla çeker, her sayfa için bir CategoryPage üretir.
+    Sayfa numarası bazlı (Watsons/Eveshop) ve offset bazlı (Gratis/Rossmann) sayfalamayı
+    config'teki 'pagination' alanına göre ayırt eder.
 
     Rate-limit ayarları (bekleme + retry) configs/tr/{site}.yaml -> rate_limit'ten okunur,
     kodda hardcode edilmez: art arda hızlı istekler Gratis'te WAF tarafından 403 ile
     bloklanabiliyor (ampirik olarak gözlemlendi), bir sayfa bloklanırsa/hata alırsa vazgeçmeden
     önce birkaç kez yeniden denenir.
+
+    Durma nedeni (stop_reason) son sayfada raporlanır — "kategori bitti" ile "bir şey ters
+    gitti, erken kesildik" ayrımı çağırana bırakılmadan burada yapılır.
     """
     api_cfg = config["category_search_api"]
     response_cfg = api_cfg["response"]
-    pagination_cfg = api_cfg.get("pagination", {})
-    page_size = pagination_cfg.get("page_size", 60)
-    page_param = pagination_cfg.get("page_param")
-    # zero_indexed=false olan siteler (Eveshop/Shopify: ?page=1'den başlar) için sayfa değeri
-    # istek anında +1 kayar; döngünün kendi 'page' sayacı (0'dan başlar, sayfa SAYISINI tutar)
-    # bundan etkilenmez.
-    zero_indexed = pagination_cfg.get("zero_indexed", True)
-
-    rate_cfg = config.get("rate_limit", {})
-    delay_seconds = rate_cfg.get("delay_seconds", 1.5)
-    max_retries = rate_cfg.get("max_retries", 3)
-    retry_backoff_seconds = rate_cfg.get("retry_backoff_seconds", 2.0)
+    cfg = _read_pagination_settings(config)
 
     page = 0
     offset = 0
+    declared_total: int | None = None
+
     while True:
         if page > 0:
-            await asyncio.sleep(delay_seconds)
+            await asyncio.sleep(cfg["delay_seconds"])
 
-        request_page = page if zero_indexed else page + 1
-        url, params = build_category_request(config, category_id, offset=offset, limit=page_size, page=request_page)
+        request_page = page if cfg["zero_indexed"] else page + 1
+        url, params = build_category_request(
+            config, category_id, offset=offset, limit=cfg["page_size"], page=request_page
+        )
 
-        response = None
-        for attempt in range(1, max_retries + 1):
+        for attempt in range(1, cfg["max_retries"] + 1):
             response = await fetch(url, params=params, headers=config.get("base_headers", {}))
-            if response.status_code == 200 or attempt == max_retries:
+            if response.status_code == 200 or attempt == cfg["max_retries"]:
                 break
-            await asyncio.sleep(retry_backoff_seconds * attempt)
-
-        yield page, response.status_code, response.content
+            await asyncio.sleep(cfg["retry_backoff_seconds"] * attempt)
 
         if response.status_code != 200:
-            break
+            yield CategoryPage(page, response.status_code, response.content,
+                               declared_total=declared_total, stop_reason="http_error")
+            return
 
         data = parse_response_body(response.content, response_cfg)
         items_path = response_cfg.get("items_path")
         items = _as_list(resolve_path(data, items_path)) if items_path else _as_list(data)
+        item_count = len(items)
 
-        if page_param:
+        if cfg["page_param"]:
             # total_pages_path opsiyonel: bazı siteler (Eveshop gibi HTML kategori sayfaları)
             # toplam sayfa sayısı bildirmiyor - o durumda tek durma sinyali "bu sayfada ürün
-            # kalmadı" (stop-on-empty).
+            # kalmadı" (stop-on-empty), ki bu bitişin doğrulanamaz olduğu anlamına gelir.
             total_pages_path = response_cfg.get("total_pages_path")
             total_pages = int(resolve_path(data, total_pages_path) or 1) if total_pages_path else None
+            total_count_path = response_cfg.get("total_count_path")
+            if total_count_path:
+                reported = resolve_path(data, total_count_path)
+                if reported is not None:
+                    declared_total = int(reported)
             page += 1
-            if not items or (total_pages is not None and page >= total_pages):
-                break
+            if total_pages is not None and page >= total_pages:
+                stop_reason = "total_pages_reached"
+            elif not items:
+                stop_reason = "empty_page"
+            elif page >= cfg["max_pages"]:
+                stop_reason = "max_pages"
+            else:
+                stop_reason = None
         else:
-            total = int(resolve_path(data, response_cfg["total_count_path"]) or 0)
-            offset += page_size
+            declared_total = int(resolve_path(data, response_cfg["total_count_path"]) or 0)
+            offset += cfg["page_size"]
             page += 1
-            if offset >= total or not items:
-                break
+            if offset >= declared_total:
+                stop_reason = "declared_total_reached"
+            elif not items:
+                stop_reason = "empty_page"
+            elif page >= cfg["max_pages"]:
+                stop_reason = "max_pages"
+            else:
+                stop_reason = None
+
+        yield CategoryPage(page - 1, response.status_code, response.content,
+                           item_count=item_count, declared_total=declared_total,
+                           stop_reason=stop_reason)
+
+        if stop_reason is not None:
+            if stop_reason == "max_pages":
+                logger.error(
+                    f"kategori {category_id}: {cfg['max_pages']} sayfa güvenlik sınırına dayanıldı - "
+                    "site sayfalama parametresini yok sayıyor olabilir, config gözden geçirilmeli"
+                )
+            return

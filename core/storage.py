@@ -1,30 +1,19 @@
 from __future__ import annotations
 
-import re
 from datetime import date, datetime, timezone
 
+from shared.constants import DATALAKE_BUCKET, PLUGIN_VERSION
 from shared.hashing import sha256_bytes
 from shared.storage import storage
+from shared.text import slugify
 
-BUCKET = "datalake"
-PLUGIN_VERSION = "0.1.0"
+# BUCKET/PLUGIN_VERSION ve Türkçe slugify tablosu daha önce burada ve crawler/ içinde
+# ayrı ayrı kopyalanmıştı — tek doğruluk kaynağı olarak shared/ altına taşındı
+# (shared/constants.py, shared/text.py). Bu isimler geriye dönük uyumluluk için
+# modül seviyesinde yeniden dışa verilir.
+BUCKET = DATALAKE_BUCKET
 
-_TR_CHARS = str.maketrans({
-    "İ": "i", "I": "i", "ı": "i",
-    "Ğ": "g", "ğ": "g",
-    "Ü": "u", "ü": "u",
-    "Ş": "s", "ş": "s",
-    "Ö": "o", "ö": "o",
-    "Ç": "c", "ç": "c",
-})
-
-
-def slugify(name: str) -> str:
-    """Kategori adını MinIO klasör adında güvenle kullanılabilecek bir slug'a çevirir
-    (Türkçe karakterler + boşluk/özel karakterler normalize edilir): 'Ev & Yaşam' -> 'ev_yasam'."""
-    text = name.translate(_TR_CHARS).lower()
-    text = re.sub(r"[^a-z0-9]+", "_", text)
-    return text.strip("_")
+__all__ = ["BUCKET", "PLUGIN_VERSION", "slugify", "write_category_page"]
 
 
 def write_category_page(

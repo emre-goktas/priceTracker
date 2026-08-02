@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from xml.etree import ElementTree
 
 from crawler.models import Site
+from shared.constants import DATALAKE_BUCKET, PLUGIN_VERSION
 from shared.hashing import sha256_text
 from shared.http_client import fetch
 from shared.logging_config import get_logger
@@ -15,8 +16,7 @@ from shared.storage import storage
 
 logger = get_logger(__name__)
 
-BUCKET = "datalake"
-PLUGIN_VERSION = "0.1.0"
+BUCKET = DATALAKE_BUCKET
 GZIP_MAGIC = b"\x1f\x8b"
 
 # Bir sitemap'te önceden aktif olan URL'lerin bu orandan fazlası tek seferde

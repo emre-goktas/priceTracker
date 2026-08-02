@@ -114,6 +114,13 @@ raw_html_extraction:
   # bitişik argümanlar) - x-labels-data.product_id ile eşleşir (doğrulandı).
   product_url_regex: "'(/products/[a-zA-Z0-9\\-]+)',\\s*'(\\d+)'"
   # Join key: x-labels-data.variant_id == variant_block'un "id" alanı (doğrulandı, 18/18).
+  # Bu alan adları eskiden matching/duckdb_pipeline.py'de LİTERAL olarak gömülüydü (fonksiyon
+  # adı bile parse_eveshop_html idi) - site adı hardcode etmeme ilkesi gereği (bkz. CLAUDE.md)
+  # config'e taşındı; kod artık sadece "hangi alan neyle join edilecek" bilgisini okuyor.
+  variant_id_field: "id"          # variant_block içindeki kimlik alanı
+  variant_join_key: "variant_id"  # x-labels-data'da buna karşılık gelen alan
+  variant_prefix: "variant."      # birleştirilen varyant alanlarının sütun öneki
+  product_url_join_key: "product_id"
 
   # analytics_regex (2026-08-02 EKLENDİ): Shopify'ın sayfaya gömdüğü client-side analytics
   # ("Web Pixels") olayından - "collection_viewed" event payload'ı, sayfanın ÇOK UZAK bir
@@ -142,6 +149,14 @@ raw_html_extraction:
   # Yakalanan gruplar sırasıyla: (vendor, product_id, product_url, category_type, variant_id,
   # image_src, sku). Değerler JSON-string-escape'li (\/  -> /, > -> >, vb.) - unescape için
   # json.loads('"' + deger + '"') kullanılmalı (matching/duckdb_pipeline.py'de böyle yapılıyor).
+  #
+  # analytics_groups: yukarıdaki capture group'ların SIRALI çıktı adları. '_' ile başlayanlar
+  # tabloya YAZILMAZ, sadece join/hizalama için okunur. Bu eşleme de eskiden kodda gömülüydü.
+  analytics_groups: ["brand", "_product_id", "product_url", "category_hierarchy", "_variant_id", "image_url", "_sku"]
+  analytics_join_group: "_variant_id"   # bu grup, variant_join_key ile eşleştirilir
+  # image.src protokolsüz path olarak geliyor (//www.eveshop.com.tr/...) - tam URL için önek:
+  analytics_prefixes:
+    image_url: "https:"
 
 # matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
 # alanda. Eveshop'ta tekrar KARIŞIK (2026-07-30, 422 örnek): 33'ü aynı kategoriden (sayfalama
