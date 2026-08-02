@@ -112,6 +112,17 @@ category_search_api:
 # yüzünden 2 farklı sayfada çıkabiliyor (doğrulandı, 2026-07-30) - bu alan üzerinden dedupe edilir.
 product_id_field: "id"
 
+# Ham veriye HİÇ alınmayacak alan önekleri (bkz. matching/duckdb_pipeline.py -> _drop_prefixes).
+# attributes.boosts.* = Gratis'in Elasticsearch sıralama ağırlıkları (44 sütun): kategori
+# boost'ları, "recommendedBestsellers", ve kampanya etiketleri (tags_6temsac, tags_1agsmkyaj...).
+# Ürün hakkında hiçbir bilgi taşımazlar - Gratis'in arama motorunun hangi ürünü hangi kampanyada
+# öne çıkardığının iç ayarı. Her yeni kampanya ham tabloya yeni bir sütun eklediği için şema
+# zamanla sınırsız şişiyordu; ayrıca 13 üyeli brand_* ailesi tekrarlı-grup eşiğini aşıp gereksiz
+# bir child tablo (raw_gratis_attributes_boosts_brand) üretiyordu.
+raw_columns:
+  drop_prefixes:
+    - "attributes.boosts."
+
 # field_mapping — 2026-08-01'de YENİDEN yazıldı (önceki sürüm bu oturumda daha erken silinmişti:
 # hiçbir kod tarafından tüketilmiyordu ve içeriği doğrulanmamıştı, bkz. proje geçmişi). Bu sefer
 # her satır gerçek veriyle doğrulandı: clean_gratis tablosu (10402 satır) + canlı sayfa + GERÇEK

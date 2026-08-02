@@ -278,6 +278,7 @@ def collect_rows(site: str, object_names: list[str]) -> list[dict]:
     config = load_site_config(site)
     response_cfg = config["category_search_api"]["response"]
     fmt = response_cfg.get("format", "json")
+    drop_prefixes = _drop_prefixes(config)
 
     rows: list[dict] = []
     unparsed = 0
@@ -304,12 +305,33 @@ def collect_rows(site: str, object_names: list[str]) -> list[dict]:
 
         for item in items:
             if isinstance(item, dict):
-                rows.append({**flatten(item), **prov})
+                rows.append({**_drop_ignored(flatten(item), drop_prefixes), **prov})
 
     if unparsed:
         logger.warning(f"{site}: {unparsed} arşiv dosyası ayrıştırılamadı (JSON da XML de değil), atlandı")
 
     return rows
+
+
+def _drop_prefixes(config: dict) -> tuple[str, ...]:
+    """configs/tr/{site}.yaml -> raw_columns.drop_prefixes: ham veriye HİÇ alınmayacak
+    alan önekleri.
+
+    Bazı API'ler ürün verisinin yanında kendi arama motorlarının iç ayarlarını da döndürüyor
+    (örn. Gratis'in `attributes.boosts.*` alanları: kategori/kampanya-etiketi bazlı
+    Elasticsearch sıralama ağırlıkları, 44 sütun). Bunlar ürün hakkında hiçbir şey söylemez,
+    kampanya takvimiyle sürekli değişir ve her yeni etiket ham tabloya yeni bir sütun ekler -
+    şemayı zamanla şişirirler. Burada, düzleştirmeden hemen sonra atılırlar; ne ana tabloya
+    ne de tekrarlı-grup child tablosuna girerler.
+
+    Site adı koda girmez: kod sadece bu config anahtarını yorumlar."""
+    return tuple(config.get("raw_columns", {}).get("drop_prefixes", []))
+
+
+def _drop_ignored(row: dict, prefixes: tuple[str, ...]) -> dict:
+    if not prefixes:
+        return row
+    return {k: v for k, v in row.items() if not k.startswith(prefixes)}
 
 
 # --- Tekrarlı grup ayrımı ------------------------------------------------------------------
