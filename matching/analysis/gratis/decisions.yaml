@@ -1,0 +1,429 @@
+# Gratis (raw_gratis, 141 kolon) - kolon bazlı denetim.
+#
+# NASIL OKUNUR: her satır bir raw kolonu (path) için üç kararından biri:
+#   kullan               -> clean_gratis'e girer (target boşsa path'ten türetilen isimle kalır)
+#   at                    -> clean_gratis'e HİÇ girmez, raw_gratis'te durmaya devam eder
+#   sakla_ama_kullanma    -> şimdilik at ile aynı davranır (clean_gratis'e girmez) ama "gelecekte
+#                            işe yarayabilir" notuyla - "at"tan farkı sadece niyet/güven seviyesi
+#
+# GÜVEN SEVİYESİ: her `analysis` alanı gerçek bir SQL sorgusuyla doğrulandı (2026-08-03,
+# matching/pricebot.duckdb üzerinde). Kategori-özel teknik spec kümesindeki (Elektrikli
+# Ürünler/Ev&Yaşam) ~90 alanın hepsi TEK TEK derinlemesine incelenmedi - temsili birkaç
+# örnek üzerinden kategori çapraz kontrolü yapıldı (bkz. ilgili not). Bu ayrım BİLEREK
+# açık bırakıldı - "hepsini inceledim" yanılgısına düşmemek için.
+#
+# columns.csv bu dosyanın HAM veri kaynağı (doluluk/distinct/örnek) - python -m
+# matching.analysis.profile_columns gratis ile yeniden üretilir, elle düzenlenmez.
+
+_shared:
+  format_kopyasi: &format_kopyasi >-
+    Yanındaki sayısal alanın TL-formatlı metin hali (örn. 54800 -> "548,00 TL") - aynı bilgi,
+    biçimlendirilmiş kopyası. Gösterim katmanı işi, veri katmanında gereksiz.
+  sabit_deger: &sabit_deger >-
+    Bu veri setinde TEK bir değer alıyor (distinct_count=1) - doğrulandı, ayırt edici bilgi
+    taşımıyor. Muhtemelen API'nin sabit döndürdüğü ya da sadece belirli bir durumda (örn.
+    sadece aktif ürünler döndüğü için isActive hep true) değişen bir alan.
+  elektronik_disi: &elektronik_disi >-
+    "Elektrikli Ürünler" kategorisine özel teknik spesifikasyon - örnek satırlar kategori
+    çapraz kontrolüyle doğrulandı (attributes.categories[1]='Elektrikli Ürünler'). Kozmetik
+    odaklı kapsamımızla (bkz. CLAUDE.md) ilgisi yok.
+  kategori_disi_diger: &kategori_disi_diger >-
+    Kozmetik dışı bir kategoriye (Ev & Yaşam / Moda & Aksesuar / Süpermarket) özel alan -
+    isim ve doluluk oranından (çok düşük, dar bir alt-kümede) çıkarımla değerlendirildi,
+    her biri tek tek kategori kontrolünden geçirilmedi.
+  kozmetik_tanimlayici: &kozmetik_tanimlayici >-
+    Gerçek bir kozmetik ürün özelliği (renk tonu/SPF/kalıcılık gibi) - fiyat takibi için
+    gerekli değil ama gelecekte fuzzy matching'te aynı ürünün varyantlarını (ton, SPF,
+    boy) ayırt etmekte işe yarayabilir. Bilerek "sakla_ama_kullanma".
+  belirsiz_dusuk_guven: &belirsiz_dusuk_guven >-
+    Genel/muğlak isimli, düşük doluluklu bir alan - içeriği örneklerden makul görünüyor
+    ama TEK TEK derin analiz yapılmadı, düşük güvenle "sakla_ama_kullanma" (yanlışlıkla
+    atılmasın diye ihtiyatlı tarafta kalındı).
+
+columns:
+  # --- Sağlanan meta/izlenebilirlik alanları (JSON'dan değil, bizim eklediğimiz) ---
+  - path: _category_folder
+    verdict: kullan
+    analysis: "MinIO obje yolundan türetilen crawl-zamanı meta veri, %100 dolu, 14 farklı değer (main_categories sayısı)."
+    reason: "Provenance - hangi kategoriden geldiği izlenebilir kalmalı."
+  - path: _fetch_date
+    verdict: kullan
+    analysis: "Crawl tarihi, %100 dolu."
+    reason: "Fiyat geçmişinin can damarı - dedupe ve tarih partition'ı bu alana dayanıyor."
+  - path: _row_id
+    verdict: kullan
+    analysis: "Ham tablodaki satır kimliği, %100 dolu, benzersiz (39254/39254)."
+    reason: "Silver dedupe'ında deterministik sıralama anahtarı."
+  - path: _source_object
+    verdict: kullan
+    analysis: "MinIO obje adı, %100 dolu."
+    reason: "Provenance - hangi arşiv dosyasından geldiği izlenebilir kalmalı."
+
+  # --- Zaten kanonik alana eşlenmiş (mevcut field_mapping) ---
+  - path: id
+    verdict: kullan
+    target: source_product_id
+    analysis: "%100 dolu, 13111 benzersiz - product_id_field zaten bu."
+    reason: "Ürün kimliği."
+  - path: attributes.eanUpc
+    verdict: kullan
+    target: ean
+    analysis: "%100 dolu. 264 satır 11 haneli (baştaki sıfır kırpık) - shared/text.py normalize_gtin bunu sola sıfır doldurarak çözüyor."
+    reason: "Barkod."
+  - path: attributes.displayName
+    verdict: kullan
+    target: name
+    analysis: "%100 dolu, 13095 benzersiz (13111 üründen çok az daha az - birkaç ürün aynı ismi paylaşıyor, muhtemelen farklı renk/ton varyantı)."
+    reason: "Ürün adı."
+  - path: attributes.brand
+    verdict: kullan
+    target: brand
+    analysis: "%100 dolu, 489 farklı marka."
+    reason: "Marka adı."
+  - path: shareLink
+    verdict: kullan
+    target: url
+    analysis: "%100 dolu, tam/çalışan SEO URL'i - id'den yeniden kurmaya çalışmak yanlış link üretiyordu (bkz. eski not)."
+    reason: "Ürün sayfası URL'i."
+  - path: imageUrls
+    verdict: kullan
+    target: image_url
+    analysis: "%100 dolu, her satırda tam 1 eleman, fileUrl mutlak URL. 3 rastgele URL canlı HEAD ile doğrulandı (200, image/webp)."
+    reason: "Ürün görseli - 2026-08-02'de eklendi, önceden bu alan hiç eşlenmemişti."
+  - path: prices.currency
+    verdict: kullan
+    target: currency
+    analysis: "%100 dolu, tek değer (TRY)."
+    reason: "Para birimi."
+  - path: prices.normalPrice
+    verdict: kullan
+    target: list_price_try
+    analysis: "%100 dolu, kuruş cinsinden BIGINT. Checkout ile doğrulanmıştı (verified_checkout, bkz. field_mapping)."
+    reason: "Üstü çizili referans fiyat."
+  - path: prices.discountedPrice
+    verdict: kullan
+    target: sale_price_try
+    analysis: "%100 dolu. schema.org offers.price ile 3/3 canlı örnekte birebir eşleşmişti - koşulsuz gerçek fiyat."
+    reason: "Fiyat takibi için stabil/güvenilir alan bu."
+  - path: prices.promotionPrice
+    verdict: kullan
+    target: conditional_promo_price_try
+    analysis: "%100 dolu. 'Gratis Kart ile' koşullu fiyat, checkout'ta 838 TL ürün gerçekten 209,50 TL'ye düşmüştü."
+    reason: "Koşullu (Gratis Kart) fiyat."
+  - path: prices.discountRate
+    verdict: kullan
+    target: discount_rate
+    analysis: "%100 dolu, (1-sale/list)*100 ile 13111/13111 satırda ±1 puan içinde uyumlu (doğrulandı 2026-08-02)."
+    reason: "Hazır indirim oranı, hesaplananla tutarlı."
+  - path: stockStatus
+    verdict: kullan
+    target: stock_status_raw
+    analysis: "%100 dolu, 4 değer (HIGH/MEDIUM/LOW/NONE)."
+    reason: "Stok durumu."
+  - path: attributes.categories
+    verdict: kullan
+    target: category_path
+    analysis: "%100 dolu, liste (örn. [Makyaj, Dudak Makyajı, Dudak Kalemi]) - array_to_string ile ' > ' birleştiriliyor."
+    reason: "Kategori hiyerarşisi."
+
+  # --- YENİ BULGU: yapısal boyut/miktar alanları - regex'ten (parse_size) DAHA GÜVENİLİR ---
+  - path: attributes.hacim
+    verdict: sakla_ama_kullanma
+    analysis: >-
+      %38.1 dolu. Örnekler isimden regex'le çıkardığımız size_value ile BİREBİR örtüşüyor
+      (örn. hacim='15 ml' <-> isim '...15 ml') ama YAPISAL kaynak - parse_size'ın "150l"
+      gibi parser hatalarına hiç maruz değil. 14168 satır 'ml', 793 'gr', birkaç düzensiz
+      birim (cc, boş) var.
+    reason: "GERÇEK ÖNERİ: parse_size'ın name-regex yöntemi yerine (ya da önce) bu alan
+      kullanılsa size_value/size_unit çok daha güvenilir olur. Bu, normalize.py'ye dokunan
+      AYRI bir karar/görev - burada sadece işaretleniyor, şimdi uygulanmıyor."
+  - path: attributes.agirlik
+    verdict: sakla_ama_kullanma
+    analysis: "%0.6 dolu ama değerleri hacim'e benzer yapıda (örn. '100 gr') - ağırlık cinsinden aynı boyut kümesi."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.kapasite
+    verdict: sakla_ama_kullanma
+    analysis: "%0.2 dolu, 'ml' cinsinden (örn. '600 ml') - muhtemelen kap/şişe kapasitesi, hacim ile örtüşebilir."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.miktar
+    verdict: sakla_ama_kullanma
+    analysis: "%0.9 dolu, 'Adet' cinsinden (örn. '1 Adet', '2 Adet') - paket içi parça sayısı, hacim/ağırlıktan FARKLI bir eksen (adet)."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.volumeVariant
+    verdict: sakla_ama_kullanma
+    analysis: "%0.5 dolu, hacim ile aynı formatta (örn. '15 ml') ama VARYANT seçici alanı olabilir (bir ürünün 15/50/100ml seçenekleri)."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.sizeVariant
+    verdict: sakla_ama_kullanma
+    analysis: "%0.3 dolu, değerler '3','2','S' gibi - hacim değil, giysi/ayakkabı BEDEN varyantı."
+    reason: *kategori_disi_diger
+  - path: attributes.boyutEbat
+    verdict: sakla_ama_kullanma
+    analysis: "%0.2 dolu, 'EN x BOY cm' formatı (örn. '15 x 15 cm') - hacim/ağırlıktan TAMAMEN FARKLI bir eksen (fiziksel ölçü, örn. mendil paketi boyutu)."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.ebat
+    verdict: sakla_ama_kullanma
+    analysis: "%0.1 dolu, boyutEbat ile aynı yapıda (EN x BOY cm)."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.boyut
+    verdict: sakla_ama_kullanma
+    analysis: "%0.0 dolu (13/39254), değerler 'Orijinal' gibi metin - boyut/ebat kümesinden farklı, muğlak."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.toplamAdet
+    verdict: sakla_ama_kullanma
+    analysis: "%2.8 dolu, 'N Adet' formatı - miktar/paketIcerigi ile örtüşebilir."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.paketIcerigi
+    verdict: sakla_ama_kullanma
+    analysis: "%0.7 dolu, 'N - M Adet' aralık formatı (örn. '2 - 6 Adet')."
+    reason: *belirsiz_dusuk_guven
+
+  # --- Kesin çöp / sabit değer (gerçek sorguyla doğrulandı) ---
+  - path: attributes.brandId
+    verdict: at
+    analysis: "489 distinct - attributes.brand ile TAM 1:1 (aynı 489). Markanın iç ID'si, isim zaten yeterli."
+    reason: "brand'in kopyası, ek bilgi taşımıyor."
+  - path: attributes.orderLimit
+    verdict: at
+    analysis: "distinct_count=1, TÜM satırlarda 4. Site-geneli sipariş limiti, ürüne özel değil."
+    reason: *sabit_deger
+  - path: attributes.ratingAvg
+    verdict: at
+    analysis: "distinct_count=1, TÜM satırlarda 0 - reviewAverage (gerçek, 85.1% dolu, değişken) VARKEN bu hep 0. Bozuk/kullanılmayan bir alan."
+    reason: *sabit_deger
+  - path: attributes.ratingAvgRound
+    verdict: at
+    analysis: "ratingAvg ile aynı durumda, hep 0."
+    reason: *sabit_deger
+  - path: badgeDescription
+    verdict: at
+    analysis: "distinct_count=1, tüm satırlarda boş string."
+    reason: *sabit_deger
+  - path: bannerTextOne
+    verdict: at
+    analysis: "distinct_count=1, boş string."
+    reason: *sabit_deger
+  - path: bannerTextTwo
+    verdict: at
+    analysis: "distinct_count=1, boş string."
+    reason: *sabit_deger
+  - path: bannerTexts
+    verdict: at
+    analysis: "distinct_count=1, hep boş liste []."
+    reason: *sabit_deger
+  - path: isActive
+    verdict: at
+    analysis: "distinct_count=1, TÜM satırlarda true - arama API'si zaten sadece aktif ürünleri döndürüyor, bu veri setinde ayırt edici değil."
+    reason: *sabit_deger
+  - path: prices.discountedText
+    verdict: at
+    analysis: "distinct_count=1, TÜM satırlarda 'Gratis Kart ile'."
+    reason: *sabit_deger
+  - path: prices.discountedPriceLabel
+    verdict: at
+    reason: *format_kopyasi
+  - path: prices.discountRateLabel
+    verdict: at
+    reason: *format_kopyasi
+  - path: prices.normalPriceLabel
+    verdict: at
+    reason: *format_kopyasi
+  - path: prices.promotionPriceLabel
+    verdict: at
+    reason: *format_kopyasi
+  - path: prices.promotionLabel
+    verdict: at
+    analysis: >-
+      2 değer: '250 TL ve Üzeri Alışverişe' (13012+26061 satır) ve '50 TL ve Üzeri Alışverişe'
+      (58+123 satır, %0.4-0.5). BULGU: field_mapping notumuzda sadece 250 TL eşiği yazıyor,
+      küçük bir alt-kümede (~%0.5) farklı/daha düşük bir eşik de varmış - conditional_promo_price_try
+      HESABI etkilenmiyor (sayısal promotionPrice zaten doğru kullanılıyor), sadece dokümantasyon
+      notu eksik. Tarihe göre DEĞİŞMİYOR (07-29 ve 08-01'de aynı oranlar) - kampanya kayması değil.
+    reason: "Metin etiketi, sayısal promotionPrice zaten doğru şekilde kullanılıyor. (Not: field_mapping'deki '250 TL' açıklaması eksik/kısmi, güncellenebilir.)"
+  - path: badges
+    verdict: at
+    analysis: >-
+      STRUCT liste, %100 dolu ama type/text/image/position alanları hep boş - sadece 'keyword'
+      alanı dolu (örn. 'isPL', 'isSalesChannel...'). Bunlar Gratis'in iç ERP/kanal bayrakları,
+      ürün özelliği değil.
+    reason: "İç sistem bayrağı, ürün/fiyat bilgisi taşımıyor."
+  - path: attributes.tags
+    verdict: at
+    analysis: "%100 dolu, 7845 farklı değer ama örnekler kampanya/arama kodu ('26ocakrusx', '10sbtplgnl' gibi) - okunabilir ürün özelliği değil."
+    reason: "Kampanya/arama etiketi, ürün özelliği değil (attributes.boosts.* ile aynı doğa)."
+  - path: attributes.cesit
+    verdict: at
+    analysis: >-
+      %97.8 dolu AMA alan aşırı yüklenmiş/tutarsız: değerler arasında '150 ml' (hacim),
+      'Set'/'Tekli'/'Çoklu' (paket tipi), '21-30 gr' (ağırlık aralığı), 'Tüm Cilt Tipleri'
+      (cilt tipi!) karışık geliyor - Gratis'in kendi veri girişinde kategoriye göre farklı
+      anlamlara gelen tek bir alan. Güvenilir tek bir kanonik anlama indirgenemiyor.
+    reason: "Kaynakta anlamı kategoriye göre değişen, tutarsız/kirli bir alan - şimdiki kapsam için karmaşıklığa değmiyor."
+  - path: attributes.ztedarik
+    verdict: at
+    analysis: "%98.3 dolu, HTML formatlı tedarikçi/ithalatçı yasal bilgi metni (KVKK/ticaret bilgisi)."
+    reason: "Yasal/tedarikçi metni, ürün ya da fiyat özelliği değil."
+
+  # --- Gerçek ama düşük öncelikli veri (sakla_ama_kullanma, tek tek doğrulandı) ---
+  - path: attributes.categoryIds
+    verdict: sakla_ama_kullanma
+    analysis: "%100 dolu, categories ile POZİSYONEL 1:1 (örn. [501,50101,5010104] <-> [Makyaj,Dudak Makyajı,Dudak Kalemi]) - sayısal/stabil hiyerarşi ID'si."
+    reason: "category_path (metin) zaten okunabilir kaynak olarak yeterli; ID'ler kanonik taksonomi eşlemesi gerekirse (configs/taxonomy/) daha stabil bir anahtar olabilir."
+  - path: attributes.keywords
+    verdict: sakla_ama_kullanma
+    analysis: "%100 dolu, gerçek/okunabilir arama terimleri (örn. 'Gel Lip Pencil', 'Matte Lip Pencil') - tags'ten (kampanya kodu) FARKLI, gerçek ürün tanımlayıcı ifadeler."
+    reason: *kozmetik_tanimlayici
+  - path: attributes.features
+    verdict: sakla_ama_kullanma
+    analysis: "%26 dolu (10218/39254), gerçek içerik: sertifika/iddia etiketleri (örn. 'Vegan', 'Cruelty Free', 'Parabensiz', 'Hyalüronik Asit')."
+    reason: *kozmetik_tanimlayici
+  - path: attributes.maxInstalments
+    verdict: sakla_ama_kullanma
+    analysis: "%100 dolu ama 4 farklı değer (1,3,6,9) - ürüne göre değişen taksit sayısı, sabit değil."
+    reason: "Kredi kartı taksit bilgisi, fiyat takibi kapsamımızın dışında ama gerçek/değişken veri."
+  - path: attributes.taxCode
+    verdict: sakla_ama_kullanma
+    analysis: "%100 dolu, 3 değer (1, 10, 20) - muhtemelen KDV oranı (%1/%10/%20)."
+    reason: "Vergi bilgisi, fiyatlar zaten vergi dahil - şimdilik gerekmiyor."
+  - path: attributes.zmensei
+    verdict: sakla_ama_kullanma
+    analysis: "%97.9 dolu, 61 farklı ülke (örn. Hindistan, Hollanda, Japonya) - menşei ülke."
+    reason: *kozmetik_tanimlayici
+  - path: images
+    verdict: sakla_ama_kullanma
+    analysis: >-
+      DÜZELTME (2026-08-03): gratis.yaml'daki eski not "images hep boş geliyor" diyordu -
+      bu YANLIŞTI, sadece o anki örneklem şanssızdı. Gerçekte %33.7 dolu (13244/39254),
+      içerik STRUCT(id, fileName) - örn. [{'id':'gmwY7mmbyj','fileName':'10175198_variant.jpg'}].
+      imageUrls'ten (kullanılan, %100 dolu, tam URL) FARKLI: sadece id+fileName var, URL'e
+      nasıl çevrileceği belirsiz (base path denenmedi).
+    reason: "imageUrls zaten çalışan/tam bir ana görsel veriyor, bunun ek değeri (muhtemelen varyant görselleri) şimdilik araştırılmadı."
+  - path: variants.type
+    verdict: sakla_ama_kullanma
+    analysis: "%44.1 dolu, 4 değer (örn. 'color') - ürünün hangi eksende varyantı olduğunu gösteriyor."
+    reason: *kozmetik_tanimlayici
+  - path: variants.values
+    verdict: sakla_ama_kullanma
+    analysis: "%44.1 dolu, STRUCT(id, value) listesi - variant.type ile birlikte varyant seçenekleri (örn. diğer renk/ton ID+görsel URL'leri)."
+    reason: *kozmetik_tanimlayici
+  - path: variantCount
+    verdict: sakla_ama_kullanma
+    analysis: "%45.1 dolu, metin (örn. '5 Renk') - variants.type/values ile aynı bilginin okunabilir özeti."
+    reason: *kozmetik_tanimlayici
+  - path: reviewAverage
+    verdict: sakla_ama_kullanma
+    analysis: "%85.1 dolu (kalan %14.9 hiç yorum almamış ürünler, reviewCount ile birlikte NULL - tutarlı)."
+    reason: "Kullanıcı puanı, fiyat takibi kapsamımızın dışında."
+  - path: reviewCount
+    verdict: sakla_ama_kullanma
+    analysis: "reviewAverage ile aynı doluluk/tutarlılık."
+    reason: "Kullanıcı puanı, fiyat takibi kapsamımızın dışında."
+  - path: attributes.description
+    verdict: sakla_ama_kullanma
+    analysis: "%100 dolu, HTML formatlı uzun ürün açıklaması (9307 benzersiz)."
+    reason: "Fuzzy matching'te isim yetersiz kaldığı senaryoda ek bağlam olabilir, şimdilik kullanılmıyor."
+  - path: analytics.viewCount
+    verdict: at
+    analysis: "%100 dolu, 16222 farklı değer - ürün sayfası görüntülenme sayısı (engagement metriği)."
+    reason: "Fiyat takibiyle ilgisi yok, popülerlik sinyali kapsam dışı (bkz. rossmann _source.sold kararı - aynı gerekçeyle reddedildi)."
+  - path: analytics.favoriteCount
+    verdict: at
+    analysis: "%100 dolu, 10236 farklı değer - kaç kullanıcı favoriledi."
+    reason: "Fiyat takibiyle ilgisi yok, popülerlik sinyali kapsam dışı (bkz. rossmann _source.sold kararı - aynı gerekçeyle reddedildi)."
+  - path: analytics.salesCount
+    verdict: at
+    analysis: "%100 dolu, 6276 farklı değer - satış adedi sayacı. Rossmann'ın _source.sold alanıyla AYNI KATEGORİDE (dahili satış/talep sayacı, seyrek güncellenen sıralama sinyali)."
+    reason: "Kullanıcının 2026-08-02 kararı: 'units_sold bizim için önemli bir veri değil, biz fiyat takip edeceğiz şimdilik' - aynı gerekçe burada da geçerli, tutarlılık için aynı karar uygulandı."
+  - path: attributes.adet
+    verdict: sakla_ama_kullanma
+    analysis: "%0.4 dolu, örnek '60 Adet' - miktar/toplamAdet kümesiyle aynı doğa (paket içi parça sayısı)."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.boy
+    verdict: at
+    analysis: "%7.9 dolu, 9 değer, örnek 'Orijinal' - muğlak, kategori bağlamı belirsiz."
+    reason: *belirsiz_dusuk_guven
+  - path: attributes.videos
+    verdict: sakla_ama_kullanma
+    analysis: "%5.4 dolu, YouTube linki."
+    reason: *belirsiz_dusuk_guven
+
+  # --- Kozmetik-ilgili tanımlayıcı özellikler (SPARSE ama gerçek, tek tek isim/örnek okunarak sınıflandı) ---
+  - { path: attributes.spf, verdict: sakla_ama_kullanma, analysis: "%4.3 dolu, 'N SPF' formatı - güneş koruma faktörü.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.colorName, verdict: sakla_ama_kullanma, analysis: "%38.2 dolu, 42 renk adı (örn. 'Pembe').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.colorShadeVariant, verdict: sakla_ama_kullanma, analysis: "%35.4 dolu, 3610 farklı ton kodu (örn. '05 Smart') - ruj/oje numarası.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.colorShadeVariantCode, verdict: sakla_ama_kullanma, analysis: "%35.4 dolu, colorShadeVariant'ın iç kodu (örn. 'c_2913_05 Smart').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.finish, verdict: sakla_ama_kullanma, analysis: "%3.2 dolu, 30 değer (örn. 'Desenli') - kozmetik bitiş/doku.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.kalicilik, verdict: sakla_ama_kullanma, analysis: "%2.7 dolu, 2 değer (örn. 'Kalıcı') - parfüm/makyaj kalıcılığı.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.suyaDayaniklilik, verdict: sakla_ama_kullanma, analysis: "%8.1 dolu, 3 değer - maskara vb. suya dayanıklılık.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.cinsiyet, verdict: sakla_ama_kullanma, analysis: "%3.9 dolu, 4 değer (örn. 'Kadın') - hedef cinsiyet.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.aroma, verdict: sakla_ama_kullanma, analysis: "%10.2 dolu, 97 değer (örn. 'Oryantal & Çiçeksi') - parfüm koku ailesi.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.ciltTipi, verdict: sakla_ama_kullanma, analysis: "%15.4 dolu, 21 değer (örn. 'Tüm Cilt Tipleri').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.sacTipi, verdict: sakla_ama_kullanma, analysis: "%7.2 dolu, 17 değer - hedef saç tipi.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.form, verdict: sakla_ama_kullanma, analysis: "%33.4 dolu, 46 değer (örn. 'Likit') - ürün formu.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.gorunum, verdict: sakla_ama_kullanma, analysis: "%30.4 dolu, 17 değer (örn. 'Parlak').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.kapaticilik, verdict: sakla_ama_kullanma, analysis: "%4.8 dolu, 5 değer - fondöten kapatıcılığı.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.etki, verdict: sakla_ama_kullanma, analysis: "%13.9 dolu, 89 değer (örn. 'Besleyici').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.kullanimAmaci, verdict: sakla_ama_kullanma, analysis: "%13.9 dolu, 65 değer (örn. 'Nemlendirici').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.icerik, verdict: sakla_ama_kullanma, analysis: "%3.4 dolu, 4 değer (örn. 'Oksidanlı').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.subBrand, verdict: sakla_ama_kullanma, analysis: "%0.8 dolu, 6 değer (örn. 'Skin Naturals').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.urunSerisi, verdict: sakla_ama_kullanma, analysis: "%0.5 dolu, 38 değer (örn. 'Simply').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.fircaKalinligi, verdict: sakla_ama_kullanma, analysis: "%5.7 dolu, 5 değer - kozmetik fırça özelliği.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.fircaKiliSertligi, verdict: sakla_ama_kullanma, analysis: "%1.4 dolu, 4 değer.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.fircaTipi, verdict: sakla_ama_kullanma, analysis: "%1.8 dolu, 17 değer (örn. 'Yüz Temizleme Fırçası').", reason: *kozmetik_tanimlayici }
+  - { path: attributes.kilTipi, verdict: sakla_ama_kullanma, analysis: "%1.1 dolu, 16 değer (örn. 'Silikon') - fırça kıl tipi.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.emicilik, verdict: sakla_ama_kullanma, analysis: "%0.1 dolu, 3 değer - ped/tampon emicilik.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.antiperspirant, verdict: sakla_ama_kullanma, analysis: "%3.3 dolu, 2 değer (Var/Yok) - deodorant özelliği.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.suBazli, verdict: sakla_ama_kullanma, analysis: "%0.1 dolu, 2 değer.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.pudra, verdict: sakla_ama_kullanma, analysis: "%1.9 dolu, 2 değer (Var/Yok).", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.renkKodu, verdict: sakla_ama_kullanma, analysis: "%2.7 dolu, 27 değer.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.tutuculukSertlik, verdict: sakla_ama_kullanma, analysis: "%0.5 dolu, 7 değer - saç ürünü tutuculuğu.", reason: *kozmetik_tanimlayici }
+  - { path: attributes.yikamaSayisi, verdict: sakla_ama_kullanma, analysis: "%0.0 dolu (17 satır), 4 değer - N yıkamalık ürün.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.assortmentVariant, verdict: sakla_ama_kullanma, analysis: "%8.9 dolu, 763 değer - varyant grubu kimliği olabilir.", reason: *belirsiz_dusuk_guven }
+
+  # --- Elektrikli Ürünler kategorisine özel (temsili örneklerle doğrulandı) ---
+  - { path: attributes.gucW, verdict: at, analysis: "%0.1 dolu, örnek satırlar attributes.categories[1]='Elektrikli Ürünler'.", reason: *elektronik_disi }
+  - { path: attributes.isiAyari, verdict: at, analysis: "%0.1 dolu, kategori kontrolüyle doğrulandı.", reason: *elektronik_disi }
+  - { path: attributes.baglantiTipi, verdict: at, analysis: "%0.0 dolu, kategori kontrolüyle doğrulandı.", reason: *elektronik_disi }
+  - { path: attributes.mikrofon, verdict: at, analysis: "%0.0 dolu, kategori kontrolüyle doğrulandı.", reason: *elektronik_disi }
+  - { path: attributes.dijitalEkran, verdict: at, analysis: "%0.3 dolu.", reason: *elektronik_disi }
+  - { path: attributes.dokunmatikKontrol, verdict: at, analysis: "%0.0 dolu (tek satır).", reason: *elektronik_disi }
+  - { path: attributes.isletimSistemi, verdict: at, analysis: "%0.0 dolu (tek satır, 'iOS & Android').", reason: *elektronik_disi }
+  - { path: attributes.iyonOzelligi, verdict: at, analysis: "%0.2 dolu - saç kurutma makinesi özelliği.", reason: *elektronik_disi }
+  - { path: attributes.sogukHava, verdict: at, analysis: "%0.1 dolu - saç kurutma makinesi özelliği.", reason: *elektronik_disi }
+  - { path: attributes.sarjOlmaSuresi, verdict: at, analysis: "%0.1 dolu.", reason: *elektronik_disi }
+  - { path: attributes.hizAyari, verdict: at, analysis: "%0.1 dolu.", reason: *elektronik_disi }
+  - { path: attributes.otomatikKapanma, verdict: at, analysis: "%0.4 dolu.", reason: *elektronik_disi }
+  - { path: attributes.gucKaynagi, verdict: at, analysis: "%0.0 dolu (tek satır, 'Şarjlı').", reason: *elektronik_disi }
+  - { path: attributes.masaCapi, verdict: at, analysis: "%0.0 dolu.", reason: *elektronik_disi }
+  - { path: attributes.plakaMateryali, verdict: at, analysis: "%0.2 dolu - saç düzleştirici plakası.", reason: *elektronik_disi }
+  - { path: attributes.difuzor, verdict: at, analysis: "%0.1 dolu - saç kurutma makinesi aksesuarı.", reason: *elektronik_disi }
+  - { path: attributes.burunVeKulakTemizleme, verdict: at, analysis: "%0.1 dolu.", reason: *elektronik_disi }
+  - { path: attributes.temizlikFircasi, verdict: at, analysis: "%0.1 dolu - elektrikli cilt temizleme fırçası.", reason: *elektronik_disi }
+  - { path: attributes.yalitimSuresi, verdict: at, analysis: "%0.2 dolu - ısı yalıtımı süresi.", reason: *elektronik_disi }
+  - { path: attributes.maksimumSicaklik, verdict: at, analysis: "%0.2 dolu - saç düzleştirici/maşa sıcaklığı.", reason: *elektronik_disi }
+  - { path: attributes.baslikSayisi, verdict: at, analysis: "%0.1 dolu - elektrikli traş makinesi başlık sayısı.", reason: *elektronik_disi }
+  - { path: attributes.bicakSayisi, verdict: at, analysis: "%0.5 dolu - traş bıçağı sayısı.", reason: *elektronik_disi }
+
+  # --- Diğer kozmetik-dışı kategoriler (Ev&Yaşam/Moda/Süpermarket) ---
+  - { path: attributes.nevresimTipi, verdict: at, analysis: "%0.0 dolu (tek satır), kategori kontrolüyle doğrulandı: 'Ev & Yaşam'.", reason: *kategori_disi_diger }
+  - { path: attributes.beden, verdict: at, analysis: "%1.4 dolu, 18 değer (giysi/ayakkabı bedeni).", reason: *kategori_disi_diger }
+  - { path: attributes.ayakNumarasi, verdict: at, analysis: "%0.2 dolu.", reason: *kategori_disi_diger }
+  - { path: attributes.tur, verdict: at, analysis: "%0.0 dolu, örnek 'Sıvı Çamaşır Sabunu' - Süpermarket/temizlik kategorisi.", reason: *kategori_disi_diger }
+  - { path: attributes.malzeme, verdict: at, analysis: "%0.2 dolu, örnek 'Paslanmaz Çelik' - ev eşyası materyali.", reason: *kategori_disi_diger }
+  - { path: attributes.kalinlik, verdict: at, analysis: "%0.2 dolu, örnek 'Kalın' - muhtemelen tekstil/kağıt ürünü.", reason: *kategori_disi_diger }
+  - { path: attributes.sekil, verdict: at, analysis: "%0.2 dolu, örnek 'Kare'.", reason: *kategori_disi_diger }
+  - { path: attributes.siseMateryali, verdict: at, analysis: "%0.6 dolu, örnek 'Plastik'.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.materyal, verdict: at, analysis: "%1.3 dolu, örnek 'Ahşap'.", reason: *kategori_disi_diger }
+  - { path: attributes.yikanabilir, verdict: at, analysis: "%0.2 dolu, örnek 'Elde Yıkama'.", reason: *kategori_disi_diger }
+  - { path: attributes.acmaOrani, verdict: at, analysis: "%0.0 dolu (tek satır, '%6') - açıklamasız/muğlak.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.alkolOrani, verdict: at, analysis: "%0.6 dolu, örnek '80 Derece' - kolonya kategorisi.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.kullanim, verdict: at, analysis: "%2.0 dolu, örnek 'Tek Kullanımlık'.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.kullanimAlani, verdict: at, analysis: "%0.2 dolu, örnek 'Günlük'.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.islev, verdict: at, analysis: "%0.2 dolu, örnek 'Düzleştirme'.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.ozellik, verdict: at, analysis: "%8.3 dolu, örnek 'Jel Oje'.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.tip, verdict: at, analysis: "%7.4 dolu, örnek 'Kağıt'.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.urunCesidi, verdict: at, analysis: "%0.1 dolu, örnek 'Ayakkabı Şampuanı' - kişisel bakım dışı.", reason: *kategori_disi_diger }
+  - { path: attributes.urunTipi, verdict: at, analysis: "%16.9 dolu, 174 değer, örnek 'Asansörsüz' - muhtemelen ev aletleri.", reason: *belirsiz_dusuk_guven }
+  - { path: attributes.urunTuru, verdict: at, analysis: "%1.8 dolu, örnek 'Tütsü' - kozmetik dışı.", reason: *kategori_disi_diger }
+  - { path: attributes.backShelfOrder, verdict: at, analysis: "%0.7 dolu, sayısal - muhtemelen mağaza rafı sıralaması, iç kullanım.", reason: "İç mağaza/depo sıralama verisi, ürün özelliği değil." }
+  - { path: attributes.parcaSayisi, verdict: at, analysis: "%0.0 dolu (tek satır, 'Tek Parça').", reason: *belirsiz_dusuk_guven }

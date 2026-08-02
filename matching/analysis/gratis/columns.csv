@@ -1,0 +1,142 @@
+path,dtype,fill_pct,distinct_count,sample_value
+_category_folder,VARCHAR,100.0,14,501_makyaj
+_fetch_date,DATE,100.0,2,2026-07-29
+_row_id,BIGINT,100.0,39254,0
+_source_object,VARCHAR,100.0,420,category/gratis/2026-07-29/501_makyaj/004b0ca151cd2673e9cb52e3bd3e08ad68a3a6a907060cf0e67ba22237711a1b.json
+analytics.favoriteCount,BIGINT,100.0,10236,949
+analytics.salesCount,BIGINT,100.0,6276,89
+analytics.viewCount,BIGINT,100.0,16222,7183
+attributes.acmaOrani,VARCHAR,0.0,2,%6
+attributes.adet,VARCHAR,0.4,9,60 Adet
+attributes.agirlik,VARCHAR,0.6,15,100 gr
+attributes.alkolOrani,VARCHAR,0.6,3,80 Derece
+attributes.antiperspirant,VARCHAR,3.3,2,Yok
+attributes.aroma,VARCHAR,10.2,97,Oryantal & Çiçeksi
+attributes.assortmentVariant,VARCHAR,8.9,763,262 Charming
+attributes.ayakNumarasi,VARCHAR,0.2,5,Standart Beden
+attributes.backShelfOrder,BIGINT,0.7,79,19
+attributes.baglantiTipi,VARCHAR,0.0,2,Type C
+attributes.baslikSayisi,VARCHAR,0.1,3,1-3 Başlık
+attributes.beden,VARCHAR,1.4,18,5
+attributes.bicakSayisi,VARCHAR,0.5,5,3 Bıçaklı
+attributes.boy,VARCHAR,7.9,9,Orijinal
+attributes.boyut,VARCHAR,0.0,5,10 x 12 x 3.5 cm
+attributes.boyutEbat,VARCHAR,0.2,23,9 cm
+attributes.brand,VARCHAR,100.0,489,Love Generation
+attributes.brandId,VARCHAR,100.0,489,61110
+attributes.burunVeKulakTemizleme,VARCHAR,0.1,2,Var
+attributes.categories,VARCHAR[],100.0,267,"[Makyaj, Dudak Makyajı, Dudak Kalemi]"
+attributes.categoryIds,VARCHAR[],100.0,259,"[501, 50101, 5010104]"
+attributes.cesit,VARCHAR,97.8,12,Tekli
+attributes.ciltTipi,VARCHAR,15.4,21,Tüm Cilt Tipleri
+attributes.cinsiyet,VARCHAR,3.9,4,Kadın
+attributes.colorName,VARCHAR,38.2,42,Pembe
+attributes.colorShadeVariant,VARCHAR,35.4,3610,05 Smart
+attributes.colorShadeVariantCode,VARCHAR,35.4,4636,c_2913_05 Smart
+attributes.description,VARCHAR,100.0,9307,"Dudaklarınıza saf bir keyif! Uzun süre kalıcı jel kalem, mükemmel dudak konturunu yaratmanıza yardımcı olacak.<br><br>Ma"
+attributes.difuzor,VARCHAR,0.1,2,Yok
+attributes.dijitalEkran,VARCHAR,0.3,2,Yok
+attributes.displayName,VARCHAR,100.0,13095,Love Generation Jel Dudak Kalemi Lip Pleasure 05 Smart - Gel Lip Liner with Matte Finish
+attributes.dokunmatikKontrol,VARCHAR,0.0,1,Var
+attributes.eanUpc,VARCHAR,100.0,13112,4602006353027
+attributes.ebat,VARCHAR,0.1,14,42 x 37 cm
+attributes.emicilik,VARCHAR,0.1,3,Süper
+attributes.etki,VARCHAR,13.9,89,Besleyici
+attributes.features,VARCHAR[],100.0,696,[]
+attributes.finish,VARCHAR,3.2,30,Desenli
+attributes.fircaKalinligi,VARCHAR,5.7,5,Standart
+attributes.fircaKiliSertligi,VARCHAR,1.4,4,Yumuşak
+attributes.fircaTipi,VARCHAR,1.8,17,Yüz Temizleme Fırçası
+attributes.form,VARCHAR,33.4,46,Likit
+attributes.gorunum,VARCHAR,30.4,17,Parlak
+attributes.gucKaynagi,VARCHAR,0.0,1,Şarjlı
+attributes.gucW,VARCHAR,0.1,6,2000 W
+attributes.hacim,VARCHAR,38.1,231,15 ml
+attributes.hizAyari,VARCHAR,0.1,2,2 Kademeli
+attributes.icerik,VARCHAR,3.4,4,Oksidanlı
+attributes.isiAyari,VARCHAR,0.1,2,3 Kademeli
+attributes.isletimSistemi,VARCHAR,0.0,1,iOS & Android
+attributes.islev,VARCHAR,0.2,3,Düzleştirme
+attributes.iyonOzelligi,VARCHAR,0.2,2,Var
+attributes.kalicilik,VARCHAR,2.7,2,Kalıcı
+attributes.kalinlik,VARCHAR,0.2,2,Kalın
+attributes.kapasite,VARCHAR,0.2,6,600 ml
+attributes.kapaticilik,VARCHAR,4.8,5,Orta
+attributes.keywords,VARCHAR[],100.0,3669,"[Gel Lip Pencil, Matte Lip Pencil, Mat Bitişli Dudak Kalemi, Matlık Veren Dudak Kalemi, Uzun Süre Kalıcı Dudak Kalemi, D"
+attributes.kilTipi,VARCHAR,1.1,16,Silikon
+attributes.kullanim,VARCHAR,2.0,4,Tek Kullanımlık
+attributes.kullanimAlani,VARCHAR,0.2,2,Günlük
+attributes.kullanimAmaci,VARCHAR,13.9,65,Nemlendirici
+attributes.maksimumSicaklik,VARCHAR,0.2,7,200 Derece
+attributes.malzeme,VARCHAR,0.2,2,Paslanmaz Çelik
+attributes.masaCapi,VARCHAR,0.0,4,17 mm
+attributes.materyal,VARCHAR,1.3,27,Ahşap
+attributes.maxInstalments,BIGINT,100.0,4,1
+attributes.mikrofon,VARCHAR,0.0,1,Var
+attributes.miktar,VARCHAR,0.9,27,1 Adet
+attributes.nevresimTipi,VARCHAR,0.0,1,Çift Kişilik Nevresim
+attributes.orderLimit,BIGINT,100.0,1,4
+attributes.otomatikKapanma,VARCHAR,0.4,2,Yok
+attributes.ozellik,VARCHAR,8.3,50,Jel Oje
+attributes.paketIcerigi,VARCHAR,0.7,13,2 - 6 Adet
+attributes.parcaSayisi,VARCHAR,0.0,1,Tek Parça
+attributes.plakaMateryali,VARCHAR,0.2,2,Seramik
+attributes.pudra,VARCHAR,1.9,2,Yok
+attributes.ratingAvg,BIGINT,100.0,1,0
+attributes.ratingAvgRound,BIGINT,100.0,1,0
+attributes.renkKodu,VARCHAR,2.7,27,7 ile başlayanlar
+attributes.sacTipi,VARCHAR,7.2,17,Tüm Saç Tipleri
+attributes.sarjOlmaSuresi,VARCHAR,0.1,4,30 - 59 dk
+attributes.sekil,VARCHAR,0.2,2,Kare
+attributes.siseMateryali,VARCHAR,0.6,2,Plastik
+attributes.sizeVariant,VARCHAR,0.3,7,3
+attributes.sogukHava,VARCHAR,0.1,2,Var
+attributes.spf,VARCHAR,4.3,13,20 SPF
+attributes.suBazli,VARCHAR,0.1,2,Hayır
+attributes.subBrand,VARCHAR,0.8,6,Skin Naturals
+attributes.suyaDayaniklilik,VARCHAR,8.1,3,Yok
+attributes.tags,VARCHAR[],100.0,7845,"[26ocakrusx, 10sbtplgnl, 10sbtmkyj, 12sbtsys, 16sbtgnlgc, 16sbtmkygc, 18sbtplgc, 11mrtpl60, 11mrtsys, 18mrtgnl, 18mrtmky"
+attributes.taxCode,VARCHAR,100.0,3,20
+attributes.temizlikFircasi,VARCHAR,0.1,2,Yok
+attributes.tip,VARCHAR,7.4,18,Kağıt
+attributes.toplamAdet,VARCHAR,2.8,63,20 Adet
+attributes.tur,VARCHAR,0.0,4,Sıvı Çamaşır Sabunu
+attributes.tutuculukSertlik,VARCHAR,0.5,7,3
+attributes.urunCesidi,VARCHAR,0.1,11,Ayakkabı Şampuanı
+attributes.urunSerisi,VARCHAR,0.5,38,Simply
+attributes.urunTipi,VARCHAR,16.9,174,Asansörsüz
+attributes.urunTuru,VARCHAR,1.8,42,Tütsü
+attributes.videos,VARCHAR,5.4,394,https://www.youtube.com/watch?v=b-9u-OjzWRg
+attributes.volumeVariant,VARCHAR,0.5,16,15 ml
+attributes.yalitimSuresi,VARCHAR,0.2,3,9 Saat Sıcak / 24 Saat Soğuk
+attributes.yikamaSayisi,VARCHAR,0.0,4,10 Yıkama
+attributes.yikanabilir,VARCHAR,0.2,2,Elde Yıkama
+attributes.zmensei,VARCHAR,97.9,61,Çin
+attributes.ztedarik,VARCHAR,98.3,435,<b>Satıcının İsmi:</b> İnnohealth İmpex Dış Ticaret Ltd. Şti.<br><b>Kayıtlı Ticari Ünvan:</b> İnnohealth İmpex Dış Ticar
+badgeDescription,VARCHAR,100.0,1,
+badges,"STRUCT(""type"" VARCHAR, ""text"" VARCHAR, image VARCHAR, ""position"" VARCHAR, keyword VARCHAR)[]",100.0,18,"[{'type': erp, 'text': '', 'image': '', 'position': '', 'keyword': isPL}, {'type': erp, 'text': '', 'image': '', 'positi"
+bannerTextOne,VARCHAR,100.0,1,
+bannerTextTwo,VARCHAR,100.0,1,
+bannerTexts,JSON[],100.0,1,[]
+id,VARCHAR,100.0,13111,10209536
+imageUrls,"STRUCT(fileUrl VARCHAR, fileName VARCHAR)[]",100.0,13111,"[{'fileUrl': 'https://api.gratis.retter.io/1oakekr4e/CALL/Image/getImage/10209536-PvgEzV0fNU-01_1024x1024.jpg', 'fileNam"
+images,"STRUCT(id VARCHAR, fileName VARCHAR)[]",100.0,4482,[]
+isActive,BOOLEAN,100.0,1,true
+prices.currency,VARCHAR,100.0,1,TRY
+prices.discountRate,BIGINT,100.0,81,0
+prices.discountRateLabel,VARCHAR,100.0,81,%0
+prices.discountedPrice,BIGINT,100.0,2013,54800
+prices.discountedPriceLabel,VARCHAR,100.0,2013,"548,00 TL"
+prices.discountedText,VARCHAR,100.0,1,Gratis Kart ile
+prices.normalPrice,BIGINT,100.0,1499,54800
+prices.normalPriceLabel,VARCHAR,100.0,1499,"548,00 TL"
+prices.promotionLabel,VARCHAR,100.0,2,250 TL ve Üzeri Alışverişe
+prices.promotionPrice,BIGINT,100.0,2122,13700
+prices.promotionPriceLabel,VARCHAR,100.0,2122,"137,00 TL"
+reviewAverage,DOUBLE,85.1,40,2.2
+reviewCount,BIGINT,85.1,348,4
+shareLink,VARCHAR,100.0,13114,https://www.gratis.com/dudak-kalemi/love-generation-jel-dudak-kalemi-lip-pleasure-05-smart-gel-lip-liner-with-matte-fini
+stockStatus,VARCHAR,100.0,4,HIGH
+variantCount,VARCHAR,45.1,45,5 Renk
+variants.type,VARCHAR,44.1,4,color
+variants.values,"STRUCT(id VARCHAR, ""value"" VARCHAR)[]",44.1,1283,"[{'id': 10209534, 'value': 'https://api.gratis.retter.io/1oakekr4e/CALL/Image/getImage/10209534-S8ndGPkvOW-variant_1024x"

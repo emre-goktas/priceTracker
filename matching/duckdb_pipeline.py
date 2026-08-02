@@ -5,7 +5,6 @@ import html as html_module
 import json
 import re
 import tempfile
-from collections import defaultdict
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -34,16 +33,6 @@ logger = get_logger(__name__)
 DB_PATH = Path(__file__).resolve().parent / "pricebot.duckdb"
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs" / "tr"
 BUCKET = DATALAKE_BUCKET
-
-# Bazı siteler (örn. Rossmann/Magento) 1-e-çok ilişkileri (bir ürünün üye olduğu HER kategori
-# için ayrı bir alan, örn. "_source.cat_pos_1837") tek satırda yüzlerce sütuna yayarak
-# kodluyor - bu geniş/wide tabloda saçma sayıda sütuna yol açar (doğrulandı: Rossmann'da 1187).
-# _REPEATING_GROUP_MIN_MEMBERS eşiğinin üzerinde (aynı önek + sayısal sonek) key ailesi
-# görülürse otomatik olarak ayrı bir ilişki/child tabloya taşınır (bkz. _split_repeating_groups)
-# - site adı hardcode edilmeden, veri şekline bakarak. Küçük aileler (örn. name1/name2, 2 üye)
-# eşiğin altında kalır, normal sütun olarak durur - kasıtlı ayrı alanlar oldukları için.
-_REPEATING_GROUP_MIN_MEMBERS = 10
-_SUFFIX_RE = re.compile(r"^(.*?)(\d+)$")
 
 # İşlenmiş MinIO objelerinin kaydı. Bu tablo olmadan her çalıştırma TÜM arşiv tarihçesini
 # baştan indirip parse ediyordu (günlük crawl'da doğrusal büyüyen, tamamen gereksiz bir iş).
@@ -334,90 +323,23 @@ def _drop_ignored(row: dict, prefixes: tuple[str, ...]) -> dict:
     return {k: v for k, v in row.items() if not k.startswith(prefixes)}
 
 
-# --- Tekrarlı grup ayrımı ------------------------------------------------------------------
+# NOT (2026-08-03): Rossmann'ın cat_pos_* alanları (Magento'nun ürün-başına-100+ kategori
+# sıralama pozisyonu) için burada eskiden genel/otomatik bir "tekrarlı grup tespiti" vardı
+# (>=10 üyeli 'önek+sayı' key ailesini ayrı bir child tabloya taşıyan _split_repeating_groups).
+# cat_pos_* artık configs/tr/rossmann.yaml -> raw_columns.drop_prefixes ile kaynakta
+# filtrelendiği için (kullanıcı kararı: bu veri hiç işimize yaramıyor) bu mekanizmanın
+# denetlediği 4 site raw tablosunun HİÇBİRİNDE artık >=10 üyeli tekrarlı aile kalmıyor
+# (doğrulandı, 2026-08-03) - yani kod hiçbir zaman tetiklenmiyordu, çıkarıldı. Yeni bir site
+# gerçekten böyle bir desen getirirse (Magento-tipi "poor man's array") o siteye özel
+# raw_columns.drop_prefixes girdisi eklenmesi yeterli - genel bir otomatik mekanizma yerine
+# görünür/kasıtlı bir config kararı tercih edildi.
 
 
-def _slugify_prefix(prefix: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "_", prefix).strip("_").lower()
-    return slug or "group"
-
-
-def _protected_paths(site: str) -> set[str]:
-    """field_mapping'in başvurduğu sütun adları - bunlar tekrarlı grup ayrımından MUAF.
-
-    Eşik tabanlı ayrım (>=10 üyeli 'önek+sayı' ailesi) veri şekline bakarak çalışır ve
-    config'i tanımaz; bir gün gerçekten kullanılan bir alan ailesi eşiği geçerse sütun ana
-    tablodan child tabloya taşınır ve normalize.py 'column not found' ile kırılırdı.
-    Config'te adı geçen path'ler burada korunur."""
-    config = load_site_config(site)
-    protected = {config.get("product_id_field")}
-    for spec in (config.get("field_mapping") or {}).values():
-        if isinstance(spec, dict) and spec.get("strategy") == "direct_path":
-            protected.add(spec.get("path"))
-    return {p for p in protected if p}
-
-
-def _split_repeating_groups(rows: list[dict], protected: set[str]) -> tuple[list[dict], dict[str, list[dict]]]:
-    """Aynı önek + sayısal sonekle biten (>= _REPEATING_GROUP_MIN_MEMBERS) key ailelerini
-    ana satırlardan çıkarıp ayrı child kayıt listelerine taşır. Döner: (temizlenmiş ana
-    satırlar, {aile_slug: [{_row_id, suffix, value}, ...]})."""
-    all_keys: set[str] = set()
-    for row in rows:
-        all_keys.update(row.keys())
-
-    families: dict[str, list[str]] = defaultdict(list)
-    for key in all_keys:
-        if key in protected:
-            continue
-        match = _SUFFIX_RE.match(key)
-        if match:
-            families[match.group(1)].append(key)
-
-    key_to_family = {
-        key: prefix
-        for prefix, members in families.items()
-        if len(members) >= _REPEATING_GROUP_MIN_MEMBERS
-        for key in members
-    }
-    if not key_to_family:
-        return rows, {}
-
-    children: dict[str, list[dict]] = defaultdict(list)
-    cleaned_rows = []
-    for row_id, row in enumerate(rows):
-        row = {**row, "_row_id": row_id}
-        cleaned = {}
-        for key, value in row.items():
-            family_prefix = key_to_family.get(key)
-            if family_prefix is None:
-                cleaned[key] = value
-                continue
-            if value is None:
-                continue
-            suffix = key[len(family_prefix):]
-            slug = _slugify_prefix(family_prefix)
-            children[slug].append({"_row_id": row_id, "suffix": suffix, "value": value})
-        cleaned_rows.append(cleaned)
-
-    for prefix, members in families.items():
-        if len(members) >= _REPEATING_GROUP_MIN_MEMBERS:
-            logger.info(
-                f"tekrarlı grup tespit edildi: '{prefix}*' ({len(members)} üye) -> "
-                f"raw_{{site}}_{_slugify_prefix(prefix)} alt tablosuna taşınıyor"
-            )
-
-    return cleaned_rows, children
-
-
-def _prepare_main_rows(rows: list[dict], protected: set[str]) -> tuple[list[dict], dict[str, list[dict]]]:
-    """_split_repeating_groups'u çalıştırır + hiç aile bulunamasa bile her satıra _row_id
-    ekler. _row_id, satırın ham tablodaki kimliğidir: hem tekrarlı-grup child tablolarını
-    ana tabloya bağlar hem de silver dedupe'ında (aynı ürün+tarih için hangi satır kalacak)
-    deterministik sıralama anahtarı olarak kullanılır."""
-    main_rows, child_groups = _split_repeating_groups(rows, protected)
-    if not child_groups:
-        main_rows = [{**row, "_row_id": i} for i, row in enumerate(rows)]
-    return main_rows, child_groups
+def _add_row_id(rows: list[dict]) -> list[dict]:
+    """Her satıra, ham tablodaki kimliği olan _row_id'yi ekler - silver dedupe'ında
+    (aynı ürün+tarih için hangi satır kalacak) deterministik sıralama anahtarı olarak
+    kullanılır."""
+    return [{**row, "_row_id": i} for i, row in enumerate(rows)]
 
 
 # --- DuckDB yazımı -------------------------------------------------------------------------
@@ -555,30 +477,17 @@ def load_site(con: duckdb.DuckDBPyConnection, site: str, full_refresh: bool = Fa
         logger.warning(f"{site}: okunan objelerden hiç satır çıkmadı")
         return 0
 
-    protected = _protected_paths(site)
-    main_rows, child_groups = _prepare_main_rows(rows, protected)
+    main_rows = _add_row_id(rows)
 
     if incremental:
         # _row_id ham tabloda benzersiz olmalı (silver dedupe'ında sıralama anahtarı)
         offset = con.execute(f"SELECT COALESCE(MAX(_row_id), -1) + 1 FROM {raw_table}").fetchone()[0]
         main_rows = [{**row, "_row_id": row["_row_id"] + offset} for row in main_rows]
-        child_groups = {
-            slug: [{**c, "_row_id": c["_row_id"] + offset} for c in children]
-            for slug, children in child_groups.items()
-        }
         if not _append_jsonl(con, raw_table, main_rows):
             return load_site(con, site, full_refresh=True)
-        for slug, children in child_groups.items():
-            child_table = f"raw_{site}_{slug}"
-            if _table_exists(con, child_table):
-                _append_jsonl(con, child_table, children)
-            else:
-                _load_jsonl(con, child_table, children)
     else:
         con.execute(f"DELETE FROM {INGEST_LOG_TABLE} WHERE site = ?", [site])
         _load_jsonl(con, raw_table, main_rows)
-        for slug, children in child_groups.items():
-            _load_jsonl(con, f"raw_{site}_{slug}", children)
 
     _record_ingested(con, site, pending)
 

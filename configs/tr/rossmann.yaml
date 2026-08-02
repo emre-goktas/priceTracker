@@ -78,9 +78,21 @@ category_search_api:
     # her hit, gerçek ürün verisi hit._source altında sarmalanmış.
 
 # matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
-# alanda. Rossmann'da bu, gerçek çoklu-kategori üyeliğinden geliyor (cat_pos_* ile aynı doğa,
-# doğrulandı 2026-07-30) - sayfalama hatası değil.
+# alanda. Rossmann'da bu, gerçek çoklu-kategori üyeliğinden geliyor - sayfalama hatası değil.
 product_id_field: "_source.id"
+
+# Ham veriye HİÇ alınmayacak alan önekleri (bkz. matching/duckdb_pipeline.py -> _drop_prefixes).
+# cat_pos_* = Magento'nun ürünün HER üye olduğu kategori listesinde kaçıncı sırada göründüğünü
+# tutan iç sıralama alanı (örn. cat_pos_1837=42). Ürün başına 100+ tane var (doğrulandı:
+# 1.089.357 satır, ürün başına ortalama ~107) - fiyat takibiyle hiçbir ilgisi yok, hiçbir kod
+# tarafından okunmuyordu (2026-08-03 denetiminde doğrulandı: sıfır gerçek kullanım). Eskiden
+# ayrı bir child tabloya (raw_rossmann_source_cat_pos) taşınıyordu - kullanıcının kararıyla
+# (2026-08-03) artık hiç arşivlenmiyor, bu da _split_repeating_groups mekanizmasını tamamen
+# gereksiz kıldı (kaldırıldı, bkz. matching/duckdb_pipeline.py) - 4 sitenin hiçbirinde artık
+# >=10 üyeli tekrarlı alan ailesi kalmadı.
+raw_columns:
+  drop_prefixes:
+    - "_source.cat_pos_"
 
 # field_mapping — 2026-08-02'de yazıldı. Kullanıcının elindeki bağımsız kaynaklar (tek ürünlük
 # örnek JSON, "explanation" alanlarıyla annotate edilmiş + 364 satırlık CSV) SADECE başlangıç
