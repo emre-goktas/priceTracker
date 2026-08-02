@@ -1,16 +1,36 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+from pathlib import Path
+
+import yaml
 
 from core.parsers import base_parser
-from core.parsers.site_plugins import eveshop, gratis, rossmann, watsons
 from core.storage import write_category_page
 from shared import http_client
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-SITE_PLUGINS = [gratis, watsons, rossmann, eveshop]
+SITES_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "sites.yaml"
+
+
+# CLAUDE NOTU: Çekirdek kodda (bu dosyada) site isimleri (gratis, watsons vb.) hardcode
+# EDİLEMEZ (bkz. CLAUDE.md Kural 3). Eski sürümde burada statik importlar ve 
+# SITE_PLUGINS listesi vardı (Antigravity tarafından düzeltildi).
+# Plugin'ler configs/sites.yaml dosyasından "enabled: true" olanlara bakarak
+# importlib ile DİNAMİK olarak yüklenmelidir. Lütfen burayı tekrar hardcode'a çevirme!
+def load_enabled_plugins():
+    raw = yaml.safe_load(SITES_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    plugins = []
+    for entry in raw.get("sites", []):
+        if entry.get("enabled"):
+            site_name = entry["name"]
+            module_name = f"core.parsers.site_plugins.{site_name}"
+            plugin = importlib.import_module(module_name)
+            plugins.append(plugin)
+    return plugins
 
 
 def _log_completeness(
@@ -124,12 +144,13 @@ async def fetch_site_categories(plugin) -> None:
 
 
 async def run_category_fetch() -> None:
+    plugins = load_enabled_plugins()
     try:
         results = await asyncio.gather(
-            *(fetch_site_categories(plugin) for plugin in SITE_PLUGINS),
+            *(fetch_site_categories(plugin) for plugin in plugins),
             return_exceptions=True,
         )
-        for plugin, result in zip(SITE_PLUGINS, results):
+        for plugin, result in zip(plugins, results):
             if isinstance(result, Exception):
                 logger.error(f"{plugin.SITE_NAME}: category fetch başarısız - {result}")
     finally:
