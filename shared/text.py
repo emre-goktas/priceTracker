@@ -96,13 +96,13 @@ _UNIT_TO_CANONICAL = {
     "lı": ("adet", 1.0), "lü": ("adet", 1.0),
 }
 
-# "2x50 ml" / "50 ml" / "1,5 lt" / "60'lı" desenlerini tek geçişte yakalar.
+# "2x50 ml" / "50 ml" / "1,5 lt" / "60'lı" / "3 Paket 56 Adet" desenlerini tek geçişte yakalar.
 _SIZE_RE = re.compile(
-    r"(?:(?P<count>\d+)\s*[x×]\s*)?"          # opsiyonel çoklu paket öneki: "2x"
-    r"(?P<value>\d+(?:[.,]\d+)?)"              # sayı (Türkçe ondalık virgül dahil)
-    r"\s*['’]?\s*"                              # "60'lı" gibi kesme işareti
+    r"(?:(?P<count>\d+)\s*(?:[x×]|paket|kutu)\s*)?"   # opsiyonel çoklu paket öneki: "2x", "3 Paket"
+    r"(?P<value>\d+(?:[.,]\d+)?)"                      # sayı (Türkçe ondalık virgül dahil)
+    r"(?P<sep>\s*['’]?\s*)"                            # "60'lı" gibi kesme işareti / boşluk
     r"(?P<unit>ml|mililitre|cl|dl|lt|litre|l|mg|gr|gram|g|kg|adet|li|lu|lı|lü)"
-    r"(?![a-zçğıöşü])",                        # birimden sonra harf gelmemeli ("gram" vs "granül")
+    r"(?![a-zçğıöşü])",                                # birimden sonra harf gelmemeli ("gram" vs "granül")
     re.IGNORECASE,
 )
 
@@ -111,17 +111,27 @@ def parse_size(name: str | None) -> tuple[float | None, str | None]:
     """Ürün adından toplam miktarı ve kanonik birimi çıkarır.
 
     Döner: (değer, birim) — birim 'ml' | 'g' | 'adet', bulunamazsa (None, None).
-    Çoklu paket TOPLAM üzerinden hesaplanır: '2x50 ml' -> (100.0, 'ml'), çünkü fiyat
-    karşılaştırmasında anlamlı olan kutudaki toplam miktardır.
+    Çoklu paket TOPLAM üzerinden hesaplanır: '2x50 ml' -> (100.0, 'ml'), '3 Paket 56 Adet'
+    -> (168.0, 'adet'), çünkü fiyat karşılaştırmasında anlamlı olan kutudaki toplam miktardır.
 
     Birden fazla eşleşme varsa (örn. '50 ml x 2 adet') hacim/ağırlık eşleşmesi 'adet'e
-    tercih edilir — asıl ayırt edici olan odur."""
+    tercih edilir — asıl ayırt edici olan odur.
+
+    Tek harflik litre birimi SADECE BÜYÜK 'L' ise kabul edilir. Bu kural veriden çıkarıldı
+    (37199 farklı ürün adı tarandı): tek harfle yazılmış litrelerin 24'ü de BÜYÜK L
+    ("Duş Jeli 1 L", "Çöp Torbası 10L"), küçük 'l' ile yazılmış 3 örneğin ÜÇÜ DE bozuk/kırpık
+    ("Sprey 150l" -> aynı ürün diğer 3 sitede "150 ml"; "Tampon 32'l" -> "32'li";
+    "Orkid 16'l" -> "16'lı"). Eskiden bunlar litre sayılıp 150000/32000/16000 ml üretiyordu.
+    Boşluk değil harf büyüklüğü ayırt edici: "10L" bitişik ama gerçek litre.
+    'lt'/'litre' yazımları (43 isim) bu kuraldan etkilenmez."""
     if not name:
         return None, None
 
     best: tuple[float, str] | None = None
     for match in _SIZE_RE.finditer(ascii_fold(name)):
         unit_key = match.group("unit").lower()
+        if unit_key == "l" and match.group("unit") != "L":
+            continue  # küçük 'l' -> kırpılmış "li/lı" ya da bozuk veri, litre değil
         canonical, factor = _UNIT_TO_CANONICAL[unit_key]
         try:
             value = float(match.group("value").replace(",", "."))

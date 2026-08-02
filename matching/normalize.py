@@ -42,8 +42,16 @@ CANONICAL_FIELDS = [
 
 # Kanonik alanların üzerine eklenen türetilmiş normalizasyon sütunları.
 DERIVED_FIELDS = [
-    "name_raw", "name_normalized", "brand_raw", "brand_normalized", "size_value", "size_unit",
+    "name_raw", "name_normalized", "name_full_normalized",
+    "brand_raw", "brand_normalized", "size_value", "size_unit",
 ]
+
+# Fiyat alanları: 0 veya negatif değer "fiyat" değildir, "fiyat yok" demektir - silver'da
+# NULL'a çevrilir. Site-agnostik bir temizlik kuralı; hangi sitenin neden 0 yazdığını
+# bilmeye gerek yok. Gerçek veride 9 satırda görüldü (hepsi Watsons ve HEPSİ stokta değil,
+# yani satın alınabilir bir fiyat zaten yok). NULL yerine 0 bırakmak downstream'de sessiz
+# hatalara yol açar: sıfıra bölme, "%100 indirim", "en ucuz site" hesaplarında yanlış kazanan.
+PRICE_FIELDS = ["list_price_try", "sale_price_try", "conditional_promo_price_try"]
 
 
 def load_site_config(site: str) -> dict:
@@ -163,8 +171,13 @@ def build_silver_select(union_sql: str) -> str:
     tanımlıyoruz ve aynı ifadede `m.name` (ham) okuyoruz - nitelenmemiş bırakılırsa DuckDB
     lateral alias çözümlemesi hangisini kastettiğimizi bilemez.
     """
+    def passthrough(field: str) -> str:
+        if field in PRICE_FIELDS:
+            return f"CASE WHEN m.{field} > 0 THEN m.{field} END AS {field}"
+        return f"m.{field}"
+
     canonical_passthrough = ",\n    ".join(
-        f"m.{field}" for field in CANONICAL_FIELDS if field not in ("name", "brand")
+        passthrough(field) for field in CANONICAL_FIELDS if field not in ("name", "brand")
     )
     return f"""
 SELECT
@@ -180,7 +193,20 @@ SELECT
     m.brand AS brand_raw,
     tr_normalize_key(m.brand) AS brand_normalized,
     tr_size_value(m.name) AS size_value,
-    tr_size_unit(m.name) AS size_unit
+    tr_size_unit(m.name) AS size_unit,
+    -- Marka adı ürün adında GEÇMİYORSA başa eklenir. Siteler ürün adını farklı kuruyor:
+    -- Gratis/Rossmann/Watsons markayı isme yazıyor (%94-99), Eveshop yazmıyor (%9.9) -
+    -- "Vücut Sütü 400 ml" vs "Nivea Vücut Sütü 400 ml". Bu fark ölçüldüğünde isim
+    -- benzerliğini sistematik olarak bozuyordu: EAN ile eşleştiği KESİN olan çiftlerde
+    -- jaro-winkler <0.60 olan 1511 çift vardı, marka eklendiğinde 70'e düştü (Eveshop
+    -- içeren çiftlerde 1480 -> 40, ortalama benzerlik 0.71 -> 0.87). fuzzy_match.py bu
+    -- kolonu kullanmalı, name_normalized'ı değil - aksi halde Eveshop haksız yere elenir.
+    CASE
+        WHEN tr_normalize_key(m.brand) IS NULL THEN tr_normalize_key(m.name)
+        WHEN tr_normalize_key(m.name) IS NULL THEN tr_normalize_key(m.brand)
+        WHEN contains(tr_normalize_key(m.name), tr_normalize_key(m.brand)) THEN tr_normalize_key(m.name)
+        ELSE tr_normalize_key(m.brand) || ' ' || tr_normalize_key(m.name)
+    END AS name_full_normalized
 FROM ({union_sql}) m
 WHERE m.source_product_id IS NOT NULL
 """
