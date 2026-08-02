@@ -121,7 +121,7 @@ product_id_field: "id"
 #   plausible_unverified -> mantıklı ama canlı sitede bizzat çapraz kontrol edilmedi
 field_mapping:
   id: {strategy: direct_path, path: "id", confidence: verified_data}
-  ean: {strategy: direct_path, path: "attributes.eanUpc", confidence: verified_data}
+  ean: {strategy: computed, formula: "list_value(\"attributes.eanUpc\")", confidence: verified_data, note: "DÜZELTME (2026-08-02): ean sitede TEK değer ama silver'da tüm sitelerle TİP TUTARLILIĞI için VARCHAR[] listeye sarıldı (Watsons'ın gerçek çoklu-barkod, Eveshop'un ürün-yeniden-markalama senaryosu gibi durumlarda 'hangi barkod doğru' kararını normalize.py yerine matching/ean_match.py'ye erteliyoruz - hardcoded tek-değer seçimi yapılmıyor)."}
   name: {strategy: direct_path, path: "attributes.displayName", confidence: verified_data}
   brand: {strategy: direct_path, path: "attributes.brand", confidence: verified_data, note: "%100 dolu - Watsons'ın TÜMÜ BÜYÜK HARF biçiminden farklı, burada Title Case geliyor, siteler birleştirilirken normalize edilmeli"}
   url: {strategy: direct_path, path: "shareLink", confidence: verified_data, note: "GERÇEK/çalışan URL zaten burada - id'den '/p/{id}' gibi bir formülle YENİDEN KURMAYA ÇALIŞMAYIN (test edildi, yanlış/kırık link üretir), shareLink tam SEO slug'ını zaten içeriyor"}
