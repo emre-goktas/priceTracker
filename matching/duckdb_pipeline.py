@@ -116,8 +116,24 @@ def collect_json_site_rows(site: str) -> list[dict]:
     return rows
 
 
-def parse_eveshop_html(html: str, extract_regex: str, variant_block_regex: str, product_url_regex: str) -> list[dict]:
-    """Eveshop kategori sayfası HTML'inden 3 ayrı gömülü bloğu çıkarıp variant_id/product_id
+def _json_string_unescape(value: str) -> str:
+    """analytics_regex'in yakaladığı değerler JSON-string içinde JSON-string olarak escape
+    edilmiş (\\/  -> /, \\u003e -> >, vb.) - value'yu çift tırnak arasına koyup json.loads
+    etmek standart JSON kaçış kurallarının hepsini (unicode dahil) doğru çözer."""
+    try:
+        return json.loads('"' + value + '"')
+    except json.JSONDecodeError:
+        return value
+
+
+def parse_eveshop_html(
+    html: str,
+    extract_regex: str,
+    variant_block_regex: str,
+    product_url_regex: str,
+    analytics_regex: str | None = None,
+) -> list[dict]:
+    """Eveshop kategori sayfası HTML'inden gömülü blokları çıkarıp variant_id/product_id
     üzerinden birleştirir (doğrulanmış join key'ler, bkz. configs/tr/eveshop.yaml notu)."""
     labels: list[dict] = []
     for match in re.finditer(extract_regex, html, re.DOTALL):
@@ -139,6 +155,25 @@ def parse_eveshop_html(html: str, extract_regex: str, variant_block_regex: str, 
 
     url_by_product_id = {int(pid): path for path, pid in re.findall(product_url_regex, html, re.DOTALL)}
 
+    # analytics_by_variant_id: Shopify web-pixels "collection_viewed" event'inden marka/tam
+    # kategori hiyerarşisi/görsel URL'i (bkz. configs/tr/eveshop.yaml -> analytics_regex notu).
+    # x-labels-data/x-variants-data'dan TAMAMEN AYRI, 3. bir gömülü JSON kaynağı - 2026-08-02'de
+    # eklendi, önceden bu 3 alanın (brand/category/image) hiçbiri elde edilemiyordu.
+    analytics_by_variant_id: dict[int, dict] = {}
+    if analytics_regex:
+        for match in re.finditer(analytics_regex, html, re.DOTALL):
+            vendor, _product_id, product_url, category_type, variant_id, image_src, _sku = match.groups()
+            try:
+                vid = int(variant_id)
+            except ValueError:
+                continue
+            analytics_by_variant_id[vid] = {
+                "brand": _json_string_unescape(vendor),
+                "category_hierarchy": _json_string_unescape(category_type),
+                "image_url": "https:" + _json_string_unescape(image_src),
+                "product_url": _json_string_unescape(product_url),
+            }
+
     merged = []
     for label in labels:
         if not isinstance(label, dict):
@@ -151,6 +186,13 @@ def parse_eveshop_html(html: str, extract_regex: str, variant_block_regex: str, 
         url = url_by_product_id.get(label.get("product_id"))
         if url:
             row["product_url"] = url
+        analytics = analytics_by_variant_id.get(label.get("variant_id"))
+        if analytics:
+            row["brand"] = analytics["brand"]
+            row["category_hierarchy"] = analytics["category_hierarchy"]
+            row["image_url"] = analytics["image_url"]
+            if "product_url" not in row:
+                row["product_url"] = analytics["product_url"]
         merged.append(row)
     return merged
 
@@ -160,12 +202,13 @@ def collect_eveshop_rows() -> list[dict]:
     extract_regex = config["category_search_api"]["response"]["extract_regex"]
     variant_block_regex = config["raw_html_extraction"]["variant_block_regex"]
     product_url_regex = config["raw_html_extraction"]["product_url_regex"]
+    analytics_regex = config["raw_html_extraction"].get("analytics_regex")
 
     rows: list[dict] = []
     for object_name in _list_archive_objects("eveshop", "html"):
         html = _read_object(object_name).decode("utf-8", errors="replace")
         prov = _provenance(object_name)
-        for item in parse_eveshop_html(html, extract_regex, variant_block_regex, product_url_regex):
+        for item in parse_eveshop_html(html, extract_regex, variant_block_regex, product_url_regex, analytics_regex):
             rows.append({**flatten(item), **prov})
 
     return rows

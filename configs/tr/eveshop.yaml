@@ -115,15 +115,88 @@ raw_html_extraction:
   product_url_regex: "'(/products/[a-zA-Z0-9\\-]+)',\\s*'(\\d+)'"
   # Join key: x-labels-data.variant_id == variant_block'un "id" alanı (doğrulandı, 18/18).
 
+  # analytics_regex (2026-08-02 EKLENDİ): Shopify'ın sayfaya gömdüğü client-side analytics
+  # ("Web Pixels") olayından - "collection_viewed" event payload'ı, sayfanın ÇOK UZAK bir
+  # noktasında (kart bloğundan binlerce karakter ötede, <script> içindeki bir JSON-string'in
+  # İÇİNDE JSON-escape edilmiş halde) duruyor. Kullanıcının "barkod x-variants-data'dan
+  # geliyordu, görsel de HTML'den gelebilir mi?" sorusu üzerine arandı ve bulundu - bu
+  # x-labels-data/x-variants-data'dan TAMAMEN AYRI, 3. bir gömülü JSON kaynağı.
+  # Tek regex geçişinde 3 yeni alan birden verir (18/18 üründe, 2 farklı kategori sayfasında
+  # test edildi, sıfır kayıp):
+  #   - vendor: GERÇEK marka adı (önceden "Eveshop'ta marka kolonu yok" denmişti - YANLIŞTI,
+  #     burada varmış, örn. 'JOHNSONS BABY', 'GOLDEN ROSE')
+  #   - type: TAM kategori hiyerarşisi (örn. 'Eve Genel Hiyerarşi > ANNE& BEBEK BAKIM >
+  #     BEBEK KOZMETİK') - önceden bunun SADECE ayrı bir ürün detay sayfası isteğiyle
+  #     (/products/{handle}.js, "Kaynak C") alınabileceği düşünülüyordu, YANLIŞTI - kategori
+  #     sayfasının kendisinde zaten varmış, ekstra istek gerekmiyor.
+  #   - image.src: GERÇEK ürün görseli (önceden "hiç görsel alanı yok" denmişti - o da
+  #     YANLIŞTI, sadece x-labels-data/x-variants-data'da değilmiş, bu 3. blokta varmış).
+  #     Protokolsüz path (//www.eveshop.com.tr/...) - 'https:' önekiyle tam URL olur.
+  # Join key: analytics_regex'in kendi "id" alanı (variant seviyesinde) == x-labels-data.
+  # variant_id (doğrulandı, 2 sayfada 18/18 + 18/18 tam kesişim). "sku" alanı da variant.sku
+  # ile birebir eşleşiyor (ekstra çapraz doğrulama).
+  # NOT - regex TEK TIRNAKLA yazılmalı (YAML): pattern içinde '\\"' (tek backslash + tırnak,
+  # JSON-string-içinde-JSON-string kaçışı) birebir korunmalı - çift tırnaklı YAML string bu
+  # kaçışları YANLIŞ katlar, test edilip doğrulandı (2026-08-02).
+  analytics_regex: '\\"vendor\\":\\"(.*?)\\",\\"id\\":\\"(\d+)\\",\\"untranslatedTitle\\":\\".*?\\",\\"url\\":\\"(.*?)\\",\\"type\\":\\"(.*?)\\"\},\\"id\\":\\"(\d+)\\",\\"image\\":\{\\"src\\":\\"(.*?)\\"\},\\"sku\\":\\"(\d+)\\"'
+  # Yakalanan gruplar sırasıyla: (vendor, product_id, product_url, category_type, variant_id,
+  # image_src, sku). Değerler JSON-string-escape'li (\/  -> /, > -> >, vb.) - unescape için
+  # json.loads('"' + deger + '"') kullanılmalı (matching/duckdb_pipeline.py'de böyle yapılıyor).
+
 # matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
 # alanda. Eveshop'ta tekrar KARIŞIK (2026-07-30, 422 örnek): 33'ü aynı kategoriden (sayfalama
 # gürültüsü), 389'u farklı kategoriden (gerçek örtüşme - büyük kısmı cok-satan-urunler).
 product_id_field: "product_id"
 
-# field_mapping burada BİLEREK YOK (2026-07-30: diğer 3 site'ın dosyasından da kaldırıldı -
-# hiçbir kod tarafından tüketilmiyordu, matching/normalize.py hâlâ boş stub, içeriği kısmen
-# doğrulanmamış varsayımlara dayanıyordu ve kafa karıştırıyordu). normalize.py yazılırken
-# gerçek şema artık DuckDB'deki raw_{site}/clean_{site} tablolarından çıkarılacak - Eveshop için
-# bu, ham HTML'den hem x-labels-data hem x-variants-data'yı okuyup variant_id üzerinden
-# birleştirmeyi içerir (doğrulanmış join key: x-labels-data.variant_id == x-variants-data
-# script'indeki "id" - bkz. matching/duckdb_pipeline.py'deki mevcut uygulama).
+# field_mapping — 2026-08-02'de yazıldı (yukarıdaki 2026-07-30 notu artık geçersiz, normalize.py
+# artık gerçek bir taslak - tests/matching/normalize.py). Kullanıcının elindeki bağımsız kaynaklar
+# ("explanation" alanlarıyla annotate edilmiş örnek sayfa JSON'u + 3309 satırlık CSV) SADECE
+# başlangıç örneklemesi olarak kullanıldı, hiçbir iddiaya doğrudan güvenilmedi (bkz.
+# feedback_verify_ai_reports.md) - her satır raw_eveshop/clean_eveshop'taki gerçek veriyle
+# (N=3309 CSV karşılaştırması) VE kullanıcının CANLI sitede/sepette yaptığı testlerle
+# çapraz kontrol edildi.
+#
+# BÜYÜK ÖLÇEKLİ CSV DOĞRULAMASI (3309 varyant, kullanıcının bağımsız/eski kaydı,
+# clean_eveshop'un 2026-08-01 snapshot'ıyla variant_id üzerinden programatik karşılaştırıldı):
+#   name: 3282/3282 (%100) BİREBİR  |  available: 3282/3282 (%100) BİREBİR
+#   price (Standart Fiyat): 3282/3282 (%100) BİREBİR - istisnasız.
+#   qty: 3054/3282 (%93.1) - küçük fark doğal stok dalgalanması.
+#   eve_price: 2383/3282 (%72.6) - kalan fark CSV'nin bizim 07-01 crawl'ımızdan FARKLI bir
+#   tarihte alınmış olmasıyla tutarlı (Watsons/Rossmann'da da AYNI zamanlama-kaynaklı fark
+#   gözlemlenmişti - kampanya günden güne değişiyor, sistemik hata değil).
+#   27 varyant (%0.8) bizim hiç çekmediğimiz kodlar - katalog kapsama farkı.
+#
+# EN ÖNEMLİ BULGU - eve_price ("EVE KART+'A ÖZEL" fiyatı) Rossmann'la AYNI desende, Watsons'tan
+# FARKLI (2026-08-02, kullanıcı 2 ayrı canlı sepet testi yaptı, İKİSİNDE DE):
+#   Sayfada İKİ fiyat gösteriliyor (örn. "2.549,50 TL" + "EVE KART +'A ÖZEL 764,50 TL") - Watsons
+#   gibi PUBLIC görünür. AMA sepete/ödeme adımına kadar giriş yapmadan gidildiğinde tam `price`
+#   tahsil ediliyor (2.549,50 TL, 764,50 DEĞİL) - indirim üyeliğe/karta GERÇEKTEN koşullu.
+#   Rossmann'daki "üye olsaydınız X TL kazanırdınız" bildirimi burada çıkmadı ama sonuç aynı:
+#   indirim otomatik uygulanmıyor. Bu yüzden Rossmann'daki gibi conditional_promo_price_try
+#   deseni kullanıldı, sale_price_try'a coalesce EDİLMEDİ.
+#
+# confidence seviyeleri (diğer 3 site ile aynı sözleşme):
+#   verified_checkout   -> gerçek sepete eklenip/checkout'a gidilip doğrulandı
+#   verified_data       -> clean_eveshop/raw_eveshop'taki gerçek veriyle (N=3309 CSV dahil) doğrulandı
+#   plausible_unverified -> mantıklı ama canlı sitede bizzat çapraz kontrol edilemedi
+field_mapping:
+  id: {strategy: direct_path, path: "product_id", confidence: verified_data, note: "product_id_field zaten bu. Ürünler tek-varyantlı olduğu doğrulandığı için (bkz. yukarıdaki not) variant_id ile pratikte 1:1."}
+  source_sku: {strategy: direct_path, path: "variant.sku", confidence: verified_data, note: "22 haneli sıfır dolgulu Eveshop'a özel iç kod, product_id/variant_id ile sayısal bir ilişkisi yok."}
+  ean: {strategy: direct_path, path: "variant.barcode", confidence: plausible_unverified, note: "%100 dolu, Watsons'ın aksine TEK değer (virgüllü zincirleme YOK, temiz). Ama uzunluk karışık: 6991 satır 13 haneli (standart EAN-13), 162 satır 8 haneli, 66 satır 12 haneli - kısa olanların gerçek EAN-8 mi yoksa Eveshop'un iç kodu mu olduğu Watsons'takiyle aynı sebepten (sitede barkod hiç gösterilmiyor) doğrulanamadı."}
+  name: {strategy: direct_path, path: "title", confidence: verified_data, note: "%100 dolu, CSV ile 3282/3282 (%100) eşleşti. UYARI: 509 satırda HTML entity kaçış karakteri var (örn. \"Bambu Islak Mendil 3x60&#39;lı\" -> '60'lı' olmalı) - normalize.py'de html.unescape ile temizlenmeli, Rossmann'daki BOM sorununa benzer bir veri kalitesi notu."}
+  brand: {strategy: direct_path, path: "brand", confidence: verified_data, note: "DÜZELTME (2026-08-02): önce 'Eveshop'ta marka kolonu yok' denmişti - YANLIŞTI. analytics_regex ile (bkz. raw_html_extraction notu) Shopify'ın 'collection_viewed' analytics event'inden çekiliyor, %100 dolu (7219/7219), gerçekçi marka dağılımı (Flormar 422, Golden Rose 395, Essence 374, Pastel 316...) - zaten BÜYÜK HARF formatında (Watsons'a benzer)."}
+  url: {strategy: computed, formula: "'https://www.eveshop.com.tr' || product_url", confidence: verified_checkout, note: "product_url zaten '/products/{slug}-{id}' formatında tam yol - kullanıcı 3 farklı üründe canlı denedi, hepsi doğru sayfaya gitti."}
+  image_url: {strategy: direct_path, path: "image_url", confidence: verified_data, note: "DÜZELTME (2026-08-02): önce 'hiç görsel alanı yok' denmişti - YANLIŞTI. variant.featured_image (x-variants-data içinde) gerçekten hep boştu ama analytics_regex ile TAMAMEN AYRI bir kaynaktan (bkz. raw_html_extraction notu) gerçek görsel URL'i bulundu, %100 dolu (7219/7219). Canlı HEAD isteğiyle doğrulandı: 200, image/webp, ~19.5KB gerçek ürün fotoğrafı döndü."}
+  currency: {strategy: static, value: "TRY", confidence: verified_data, note: "Eveshop ham veride ayrı bir currency alanı yok (price_with_currency metninde 'TL' geçiyor ama ayrıştırmaya değmez), tüm fiyatlar zaten TL - Rossmann'daki gibi sabit."}
+
+  # --- Fiyat: N=3309 CSV doğrulaması + kullanıcının 2 ayrı CANLI sepet testiyle netleşti ---
+  list_price_try: {strategy: direct_path, path: "price", unit: kurus, confidence: verified_checkout, note: "CSV'nin 'Standart Fiyat'ıyla 3282/3282 (%100) BİREBİR eşleşti + 2 canlı sepet testinde 'Ürün Toplamı'/checkout tutarıyla birebir (2.500,00 TL ve 2.549,50 TL) doğrulandı. Kuruş cinsinden (Gratis gibi, Rossmann/Watsons'tan farklı)."}
+  sale_price_try: {strategy: direct_path, path: "price", unit: kurus, confidence: verified_checkout, note: "list_price_try ile AYNI - Rossmann'daki gibi gerçek/koşulsuz bir site-geneli indirim katmanı yok, normal müşteri (EVE KART+ olmadan) her zaman price öder, 2/2 canlı sepet testinde doğrulandı. eve_price'a COALESCE EDİLMEDİ (bkz. yukarıdaki büyük not) - genuinely koşullu."}
+  conditional_promo_price_try: {strategy: computed, formula: "CASE WHEN eve_price > 0 THEN eve_price ELSE NULL END", unit: kurus, confidence: verified_checkout, note: "'EVE KART+'A ÖZEL' fiyatı - Rossmann'ın conditional_promo_price_try'ı gibi KOŞULLU: sayfada herkese açık gösteriliyor ama GERÇEKTEN EVE KART+ üyeliği gerektiriyor, kullanıcının 2 canlı sepet testinde de giriş yapmadan tam price tahsil edildi. eve_price=0 ürünlerde bu KART indirimi YOK demek (Watsons/Rossmann'daki 'koşullu fiyat alanı boş/sıfır' deseniyle aynı) - canlı doğrulandı (Pişik Önleyici Merhem örneği: bizim eve_price=0 idi, kullanıcı sepette gerçekten price'ın tam tutarını - 649,00 TL - ödedi, 0 TL DEĞİL)."}
+  discount_rate: {strategy: computed, formula: "ROUND((1.0 - conditional_promo_price_try / NULLIF(list_price_try, 0)) * 100, 2)", confidence: plausible_unverified, note: "Ham veride hazır bir indirim yüzdesi alanı yok, hesaplanmış. UYARI: 'sale_amount' alanı İSMİNE RAĞMEN indirim tutarı DEĞİL (her zaman -price'a eşit, gerçek farkla ilgisi yok - Gemini'nin/eski dokümanların 'İndirim miktarı' açıklaması YANLIŞ, doğrulandı) - KULLANILMADI."}
+
+  stock_status_raw: {strategy: none, confidence: plausible_unverified, note: "Gratis/Rossmann'daki gibi çok-değerli bir stok metni yok - sadece boolean (available) + sayı (qty) var."}
+  is_in_stock: {strategy: direct_path, path: "available", confidence: verified_checkout, note: "boolean, kullanıcının canlı testlerinde (stokta olmayan ürün sayfasında 'stoklarda yok' yazısı + sepete eklenemedi; stoktaki 2 üründe sorunsuz sepete eklendi) tutarlı bulundu."}
+  stock_qty: {strategy: direct_path, path: "qty", confidence: verified_data, note: "CSV ile %93.1 eşleşti, kalan fark doğal/beklenen stok dalgalanması (aynı anda alınmayan snapshot'lar)."}
+
+  category_path: {strategy: direct_path, path: "category_hierarchy", confidence: verified_data, note: "DÜZELTME (2026-08-02): önce _category_folder (crawl edilen ana kategori, tek seviye, örn. 'makyaj') kullanılıyordu çünkü 'collections' alanı (~80 adet opak Shopify koleksiyon ID'si, isim eşlemesi yok) kullanılamıyordu. analytics_regex ile GERÇEK, TAM, İNSAN-OKUNABİLİR hiyerarşi bulundu (örn. 'Eve Genel Hiyerarşi > ANNE& BEBEK BAKIM > BEBEK KOZMETİK'), %100 dolu (7219/7219) - önceden SADECE ayrı bir ürün detay isteğiyle (/products/{handle}.js, 'Kaynak C') alınabileceği düşünülen veri, kategori sayfasının kendisinde zaten varmış. _category_folder hâlâ ham tabloda duruyor (crawl kapsamı takibi için) ama silver için bu daha zengin/doğru kaynak tercih edildi."}

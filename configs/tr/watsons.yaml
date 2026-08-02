@@ -85,3 +85,69 @@ category_search_api:
 # alanda. Watsons'ta bu, gerçek çoklu-kategori üyeliğinden geliyor (aynı ürün gerçekten birden
 # fazla kategoriye ait, sayfalama hatası değil - doğrulandı, 2026-07-30).
 product_id_field: "code"
+
+# field_mapping — 2026-08-02'de yazıldı. Gemini'nin 01/02/03 raporları SADECE başlangıç
+# örneklemesi olarak kullanıldı, doğrudan güvenilmedi (bkz. feedback_verify_ai_reports.md) —
+# gerçek clean_watsons/raw_watsons verisiyle + kullanıcının CANLI sitede/sepette yaptığı
+# testlerle çapraz kontrol edildi. Gemini'nin 3 somut hatası bulundu:
+#   1. `price.savePrice`/`price.isTpr`/`price.priceType` "indirim göstergesi" diye sundu ama
+#      8788 satırın TAMAMINDA sabit (''/False/'BUY') - hiçbir bilgi taşımıyor, KULLANILMIYOR.
+#   2. `roundelCategoryBadge.image.url`'i ürün görseli sandı - aslında TÜM ürünlerde AYNI genel
+#      "Sadece Watsons'ta" rozet ikonu (sadecewatsons.png), ürüne özel değil. Gerçek görsel
+#      raw_watsons.images[1].url (STRUCT list, imageType='PRIMARY', tek eleman, 195x195
+#      thumbnail) - clean_watsons'ta YOK (liste değerli sütun, leaf-only filtre düşürüyor),
+#      silver'a raw'dan join gerekir (Gratis'in category_path'i gibi).
+#   3. EN ÖNEMLİSİ: Gemini'nin 3 raporunda da HİÇ bahsi geçmeyen bir alan bulundu:
+#      `otherPrices` (raw_watsons'ta liste, priceSource='MEMBER'). %34.7 satırda dolu.
+#
+# confidence seviyeleri (Gratis'teki ile aynı sözleşme):
+#   verified_checkout   -> gerçek sepete eklenip/checkout'a gidilip doğrulandı
+#   verified_data       -> clean_watsons/raw_watsons'taki gerçek veriyle (doluluk/tutarlılık) doğrulandı
+#   plausible_unverified -> mantıklı ama canlı sitede bizzat çapraz kontrol edilemedi
+field_mapping:
+  id: {strategy: direct_path, path: "code", confidence: verified_data, note: "%100 tekil (8788/8788), product_id_field zaten bu"}
+  source_sku: {strategy: direct_path, path: "defaultSku", confidence: verified_data, note: "code'un 'BP_' önekisiz hali (örn. code=BP_1409198 -> defaultSku=1409198) - bağımsız bilgi değil, sadece format farkı"}
+  ean: {strategy: direct_path, path: "ean", confidence: plausible_unverified, note: "Watsons ürün sayfasında barkod HİÇ GÖSTERİLMİYOR (kullanıcı birkaç üründe kontrol etti, 'İçerik Bilgisi' bölümünde bile yok) - canlı doğrulama YAPILAMADI. Alan kirli: bazı satırlarda virgülle 2-6 değer zincirlenmiş VE aralarına geçersiz/kısa çöp değerler karışmış (örnek: '8682536035835,201305,8690604013050' - ortadaki 6 haneli, EAN değil). normalize.py'de: virgülle böl, her parçayı ^[0-9]{8,14}$ ile doğrula, İLK GEÇERLİ olanı al (Gemini'nin 'ilk parçayı al' önerisinin aksine, çöp ilk sırada olabiliyor). 8 haneli '30xxxxxx' desenli değerler (122 satır) gerçek EAN-8 mi yoksa Watsons'ın iç kodu mu belirsiz kaldı."}
+  name: {strategy: direct_path, path: "name", confidence: verified_data, note: "%100 dolu ama AYNI ürünün farklı crawl'larda farklı case ile geldiği gözlendi (örn. 'Medicube Age-R Booster Pro Pembe...' vs 'MEDICUBE AGE-R BOOSTER PRO PEMBE') - silver'da normalize edilirken bu tutarsızlık akılda tutulmalı"}
+  brand: {strategy: direct_path, path: "masterBrand.name", confidence: verified_data, note: "%99.5 dolu, HER ZAMAN BÜYÜK HARF (Gratis/Rossmann'ın Title Case'inden farklı) - siteler birleştirilirken INITCAP(LOWER(...)) ile normalize edilmeli"}
+  url: {strategy: direct_path, path: "url", confidence: verified_data, note: "GÖRECELİ path (örn. '/egos-wax-goz-alici-parlaklik-100-ml/p/BP_129763') - base_url 'https://www.watsons.com.tr' + url ile tam URL kurulur, kullanıcı 1-2 üründe canlı denedi, sayfa doğru açıldı (2026-08-02 doğrulandı)."}
+  image_url: {strategy: computed, formula: "CASE WHEN len(images) > 0 THEN 'https://www.watsons.com.tr' || images[1].url ELSE NULL END", confidence: verified_data, note: "clean_watsons'ta YOK - raw_watsons.images (liste, imageType='PRIMARY' tek eleman) kullanılıyor, silver raw_watsons'tan besleniyor. Yol GÖRECELİ (örn. '/medias/sys_master/prd-images/h88/h13/8900148723742/prd-front-129763_195x195/prd-front-129763-195x195.png') - base_url 'https://www.watsons.com.tr' önekiyle birleştirilir. Kullanıcı canlı denedi, tarayıcıda gerçek ürün görseli açıldı (2026-08-02 doğrulandı)."}
+  currency: {strategy: direct_path, path: "price.currencyIso", confidence: verified_data}
+
+  # --- Fiyat: kullanıcının CANLI sepete ekleyip checkout'a kadar gittiği testler + geniş
+  # istatistiksel sorgularla doğrulandı (2026-08-02). ÖNEMLİ TARİHSEL BULGU: otherPrices
+  # 07-29 crawl'ında satırların %69.4'ünde doluyken, 08-01 crawl'ında (en güncel) TAMAMEN
+  # BOŞ (0/10159) - ürün bazlı bir kural değil, site çapında bir kampanya penceresinin
+  # kapanması (aynı anda 24 fiyat-alakasız boolean bayrağın TAMAMI - multibuy/newIn/preOrder/
+  # paidLoyalty/vs. - tüm veri setinde sabit False çıktı, yani bu bayraklar kategori-listeleme
+  # API'sinde hiç doldurulmuyor, otherPrices'ın açıklaması onlarda değil). BP_1458835 örneği
+  # bunu netleştirdi: 07-29'da price.value=19999 (referans) + otherPrices=9999.9 (indirimli)
+  # AYRI veriliyordu; 08-01'de API artık indirimli fiyatı DOĞRUDAN price.value'ya yazıyor
+  # (9999.9) ve eski 19999 referansı HİÇBİR alanda görünmüyor - ama kullanıcının canlı
+  # sepetinde "Genel Toplam: 19.999,00 TL" hâlâ çıktı, yani o referans sistemde hâlâ var,
+  # sadece artık bizim çektiğimiz API yüzeyinde değil.
+  list_price_try: {strategy: direct_path, path: "price.value", confidence: verified_checkout, note: "otherPrices dolu olan (07-29 tipi) satırlarda gerçek/daha yüksek referans fiyatı doğru veriyor (sepetin 'Genel Toplam'ıyla eşleşti). AMA otherPrices boş olan (08-01 tipi) satırlarda bu ALANIN KENDİSİ ZATEN İNDİRİMLİ OLABİLİR - üstündeki gerçek referans (bu örnekte 19999) API'den kayboluyor, sadece sepete gidince görünüyor, bizim crawl'ımız bunu YAKALAYAMIYOR. Yani bu alan 'garanti MSRP' değil, 'API'nin o an gösterdiği en yüksek fiyat' - elimizdeki en iyi yaklaşım budur, kabul edilen sınırlama."}
+  sale_price_try: {strategy: computed, formula: "COALESCE(list_filter(otherPrices, x -> x.priceSource = 'MEMBER')[1].value, \"price.value\")", confidence: verified_checkout, note: "otherPrices dolu olduğunda ürün SAYFASINDA gösterilen fiyatla BİREBİR eşleşti - 'MEMBER' etiketine rağmen üyelik/login GEREKTİRMİYOR, herkese açık gösterilen fiyat. otherPrices BOŞ olduğunda price.value zaten sayfada gösterilen fiyatın ta kendisi (2 üründe, 2 ayrı tarihte canlı doğrulandı - BP_1458835 07-29'da otherPrices=9999.9 ile, 08-01'de price.value=9999.9 ile, İKİSİ DE aynı sonucu (9999.90) üretti ve ikisi de o günkü canlı sayfayla eşleşti). UYARI - YAKALAYAMADIĞIMIZ bir katman var: sepete ekleyince ('AĞUSTOS ÖZEL GÜN'/'%30 KAZANÇ' gibi isimlerle) ek bir indirim daha uygulanıyor (2/2 testte tam 500 TL) - bu indirim raw_watsons'ın HİÇBİR alanında yok (90 sütun tarandı), API'de hiç görünmüyor, sadece cart-time kampanya. Gratis'in promotionPrice'ının aksine (o en azından API'de vardı) bunu YAKALAMANIN YOLU YOK şu an - gerçek ödenen fiyattan biraz yüksek kalabilir, bilinen/kabul edilen bir sınırlama."}
+  discount_rate: {strategy: computed, formula: "ROUND((1.0 - sale_price_try / NULLIF(list_price_try, 0)) * 100, 2)", confidence: plausible_unverified, note: "Watsons ham veride hazır bir indirim yüzdesi alanı yok (Gratis'in discountRate'inin aksine), hesaplanmış. 08-01 itibarıyla otherPrices sitede kapalı olduğu için bu formül şu an neredeyse HER SATIRDA 0 verecek - bu YANLIŞ değil, o günkü gerçek durumu yansıtıyor (kampanya kapalı), ama gelecekte otherPrices yeniden aktifleşirse otomatik doğru değer üretecek şekilde tasarlandı."}
+
+  # BÜYÜK ÖLÇEKLİ DOĞRULAMA (2026-08-02): kullanıcının elindeki bağımsız/eski bir CSV
+  # (283 ürün, "Standart Fiyat"/"Watsons Club Fiyatı"/"Club İndirimi Var mı?" kolonlu, bizimle
+  # BİRLİKTE üretilmemiş, farklı bir zamanda hazırlanmış) raw_watsons'ın 2026-07-29 snapshot'ıyla
+  # programatik olarak satır satır karşılaştırıldı:
+  #   - "Standart Fiyat" == price.value: 283/283 (%100) BİREBİR - istisnasız.
+  #   - "Watsons Club Fiyatı" == otherPrices[priceSource='MEMBER'].value: kulüp indirimi olan
+  #     236 üründe 208'i (%88.1) BİREBİR eşleşti. Kalan ~28'i net 2x değil, 1.4x-2.8x arası
+  #     dağınık bir oranla farklı - CSV'nin bizim 07-29 crawl'ımızdan FARKLI bir tarihte
+  #     alınmış olmasıyla tam tutarlı (otherPrices'ın gün gün değiştiği zaten bağımsız olarak
+  #     kanıtlanmıştı, bkz. yukarı). Sistemik bir hata değil, zamanlama farkı.
+  #   - 6 ürün bizim hiçbir tarihte hiç çekmediğimiz kodlar (katalog kapsama farkı, fiyat
+  #     mantığıyla ilgisiz).
+  # Bu, list_price_try/sale_price_try formülünün 1-2 örnekten çok daha geniş bir örneklemle
+  # (N=283) doğrulanmış olduğu anlamına gelir - confidence seviyeleri yükseltildi.
+
+  stock_status_raw: {strategy: direct_path, path: "stock.stockLevelStatus", confidence: verified_data, note: "3 değer: inStock(13436)/lowStock(2283)/outOfStock(4576) (2026-08-01 tam veri), dağılım mantıklı ve 'outOfStock' değeri kullanıcının stokta olmadığını bizzat gördüğü ürünlerde (BP_1458842, BP_103227) canlı doğrulandı"}
+  is_in_stock: {strategy: computed, formula: "\"stock.stockLevelStatus\" != 'outOfStock'", confidence: verified_checkout, note: "DÜZELTME (2026-08-02): önce buraya `inStockFlag` yazılmıştı ('verified_checkout' diye işaretlenmişti) ama sadece 2 örnekle test edilmişti, ikisi de TESADÜFEN gerçekten stokta yoktu. Kullanıcının istediği geniş/istatistiksel sorguda `inStockFlag`'in TÜM veri setinde (20295/20295 satır, hem 07-29 hem 08-01) HER ZAMAN False olduğu ortaya çıktı - kullanıcının canlı sepete ekleyip SATIN ALDIĞI bir ürün bile (BP_1458835, stockLevel=4/lowStock) bu alanda False görünüyor. Yani `inStockFlag` bozuk/anlamsız, KULLANILMAMALI. `stock.stockLevelStatus` (Gratis'in stockStatus'üyle aynı desen) gerçek/tutarlı - 'lowStock' durumundaki BP_1458835'in gerçekten satın alınabildiği canlı doğrulandı, bu yüzden Gratis'teki gibi sadece 'outOfStock' hariç her şey stokta sayılır."}
+  stock_qty: {strategy: direct_path, path: "stock.stockLevel", confidence: verified_data}
+
+  category_path: {strategy: computed, formula: "replace(regexp_replace(categoryNameHierarchy, '/undefined$', ''), '/', ' > ')", confidence: plausible_unverified, note: "ham veride sondaki segment çöp '/undefined' içeriyordu (satırların %99.9'u) - burada kırpıldı + diğer sitelerle tutarlılık için '/' yerine ' > ' ayracı kullanıldı. Ayrıca ürün-sabiti DEĞİL - aynı ürün 2 farklı kategoriden çekilirse 2 farklı hiyerarşi değeri alabiliyor (Watsons'ın gerçek çoklu-kategori doğası, bkz. product_id_field notu), dedupe sonrası hangi kategori kaldığı rastgele/son-görülen'e bağlı."}
+
