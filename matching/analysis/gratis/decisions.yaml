@@ -1,17 +1,27 @@
 # Gratis (raw_gratis) kolon denetimi - SADELEŞTİRİLMİŞ YAPI (2026-08-03).
 #
+# ÖNEMLİ DÜZELTME (2026-08-03, aynı gün): clean_gratis'in kanonik alanlara yeniden adlandırıp
+# (id->source_product_id gibi) field_mapping formüllerini (birim dönüşümü, struct->URL çıkarma,
+# dizi birleştirme) UYGULADIĞI bir ilk sürüm vardı - kullanıcı bunu YANLIŞ buldu: "bi adım ileri
+# gitmişsin". clean_gratis'in TEK işi raw_gratis'i (kullanıcının kendi kararıyla budanmış halini)
+# birebir kolon adlarıyla yansıtmak + SADECE gerçekten kirli/parse edilemeyen metin alanlarının
+# (ztedarik/description gibi) DEĞERİNİ temizlemektir - isim değişikliği YOK, birim/tip dönüşümü
+# YOK. Kanonik alana eşleme (field_mapping) tamamen AYRI ve SONRAKİ bir adım - her site kendi
+# clean_{site}'ı hazır olduğunda (silver_products şu an PROTOTİP, nihai tablo değil) yazılacak/
+# revize edilecek.
+#
 # Üç kova: delete / keep / use.
-#   delete -> raw_gratis'ten TAMAMEN silindi. Kesin/mekanik silme listesi gratis_at.json'dır
-#             (tek doğruluk kaynağı) - buradaki gruplar sadece NEDEN silindiğinin kısa kaydı,
-#             path başına ayrı analiz metni YOK (gerekirse columns.csv'ye/git geçmişine bakılır).
-#   keep   -> clean_gratis'te DURUYOR ama silver_products'a GİRMİYOR. "Kullanıma değer mi"
-#             kararı henüz verilmedi - clean_gratis kurulduktan sonra gerçek veriye bakılıp
-#             karar verilecek (kullanıcı notu: "clean_gratis üzerinden karar vereceğim,
-#             fikirlerim değişebilir").
-#   use    -> clean_gratis'e girer VE silver_products'taki kanonik alana akar (target).
+#   delete -> raw_gratis'ten TAMAMEN silindi (kullanıcı kararıyla). Kesin/mekanik silme listesi
+#             gratis_at.json'dır (tek doğruluk kaynağı) - buradaki gruplar sadece NEDEN
+#             silindiğinin kısa kaydı, path başına ayrı analiz metni YOK.
+#   keep   -> clean_gratis'te duruyor, kendi adıyla, field_mapping'e girip girmeyeceği HENÜZ
+#             kararlaştırılmadı.
+#   use    -> clean_gratis'te duruyor, kendi adıyla - field_mapping'in kanonik bir alana
+#             bağlayacağı güçlü aday (ama bağlama işlemi BURADA değil, field_mapping'te olur).
 #
 # analysis: gerçek SQL sorgusuyla doğrulanmış bulgu. reason: kararın kısa gerekçesi.
-# target: opsiyonel, clean_gratis/silver'daki hedef kolon adı (yoksa kendi path'i kalır).
+# target: SADECE İLERİDE field_mapping yazılırken/revize edilirken referans notu - clean_gratis
+#         kurulumunda kullanılmıyor, kolon adını DEĞİŞTİRMEZ.
 #
 # columns.csv bu dosyanın HAM veri kaynağı - python -m matching.analysis.profile_columns gratis
 # ile yeniden üretilir.
@@ -78,6 +88,7 @@ columns:
       - attributes.colorShadeVariantCode
       - attributes.emicilik
       - attributes.etki
+      - attributes.features
       - attributes.finish
       - attributes.fircaKalinligi
       - attributes.fircaKiliSertligi
@@ -222,11 +233,6 @@ columns:
     reason: >-
       Ham HTML metin olarak silver_products'a girmemeli - clean_gratis'te html_to_plain_text ile
       temizlenmiş, okunabilir düz metin (description_temiz) olarak durur, silver_products'a taşınmaz.
-  - path: attributes.features
-    analysis: >-
-      %26 dolu (10218/39254), gerçek içerik: sertifika/iddia etiketleri (örn. 'Vegan', 'Cruelty Free',
-      'Parabensiz', 'Hyalüronik Asit').
-    reason: *kozmetik_tanimlayici
   - path: attributes.hacim
     analysis: >-
       %38.1 dolu. Örnekler isimden regex'le çıkardığımız size_value ile BİREBİR örtüşüyor (örn.

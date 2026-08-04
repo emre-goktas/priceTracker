@@ -1,0 +1,93 @@
+path,dtype,fill_pct,distinct_count,sample_value
+_category_folder,VARCHAR,100.0,7,3_makyaj
+_fetch_date,DATE,100.0,3,2026-07-29
+_id,VARCHAR,100.0,8980,28932
+_index,VARCHAR,100.0,3,mnm_products_1_20260728142617
+_row_id,BIGINT,100.0,26952,0
+_score,JSON,0.0,0,
+_source._position_,BIGINT,100.0,3231,2400
+_source.additional_images,VARCHAR,100.0,9010,/4/2/426e14f0bfd3bb4518fe6b4933d899d1a97439dc1de532f9620de8f8d8e36644.jpeg
+_source.additive_material,VARCHAR,100.0,4,
+_source.agec,VARCHAR,99.6,8,
+_source.bakim_turu,JSON,58.2,4,""""""
+_source.barcode,VARCHAR,100.0,8980,8800331320257
+_source.bestseller_product_widget_status,BOOLEAN,100.0,2,false
+_source.brand,VARCHAR,100.0,540,Hince
+_source.branding,VARCHAR,100.0,281,
+_source.breadcrumb,VARCHAR,100.0,8979,"[{""link"":""makyaj"",""name"":""Makyaj""},{""link"":""makyaj/dudak"",""name"":""Dudak""},{""link"":""makyaj/likit-ruj"",""name"":""Likit Ruj""}"
+_source.categories_ids,VARCHAR[],100.0,17371,"[16, 275, 3, 9, 2]"
+_source.cilt_bakim_oneri,JSON,58.2,3,""""""
+_source.cilt_bakim_rutin,JSON,58.2,3,""""""
+_source.cilt_kaygi,JSON,58.2,113,""""""
+_source.cilt_tipi,JSON,58.2,28,""""""
+_source.cmp_100_price,VARCHAR,100.0,1,0.000000
+_source.cmp_20_price,VARCHAR,100.0,40,0.000000
+_source.cmp_50_price,VARCHAR,100.0,1,0.000000
+_source.created_at,TIMESTAMP,100.0,3004,2026-07-02 04:22:09
+_source.crm_price,VARCHAR,100.0,602,0.000000
+_source.ctype,VARCHAR,100.0,7,
+_source.delist,VARCHAR,99.9,2,0
+_source.discp,BIGINT,99.9,72,0
+_source.entity_id,VARCHAR,100.0,8980,28932
+_source.factor,VARCHAR,99.6,7,
+_source.freight,VARCHAR,100.0,622,1 Adet
+_source.gender,JSON,99.6,6,""""""
+_source.german_quality,VARCHAR,100.0,2,0
+_source.hair_effect,VARCHAR,99.6,1,
+_source.height,VARCHAR,100.0,590,6.7
+_source.htype,VARCHAR,100.0,12,
+_source.id,BIGINT,100.0,8980,28932
+_source.image,VARCHAR,100.0,9009,/4/2/426e14f0bfd3bb4518fe6b4933d899d1a97439dc1de532f9620de8f8d8e36644.jpeg
+_source.is_in_stock,BIGINT,100.0,2,1
+_source.label1,VARCHAR,69.0,3,
+_source.label2,VARCHAR,66.3,2,
+_source.label3,VARCHAR,65.9,1,
+_source.label4,VARCHAR,65.9,1,
+_source.master_category_id,VARCHAR,100.0,257,16
+_source.max_sale_qty,BIGINT,100.0,3,10
+_source.mnm_stock_status,VARCHAR,100.0,2,Stokta Var
+_source.name,VARCHAR,100.0,8974,"Hince Raw Glow Gel Tint R005 Hibiscus, 1 Adet"
+_source.name1,VARCHAR,100.0,5118,Raw Glow Gel Tint R005 Hibiscus
+_source.name2,VARCHAR,100.0,4822,
+_source.name_sort,BIGINT,100.0,16991,9484
+_source.new_product_label,VARCHAR,100.0,2,1
+_source.new_product_widget_status,BOOLEAN,100.0,2,false
+_source.only_rossmann,VARCHAR,100.0,2,1
+_source.origin,VARCHAR,100.0,29,
+_source.original_perfume,VARCHAR,100.0,2,0
+_source.paths,VARCHAR[],100.0,17371,"[1/2/3/9/16, 1/2/275, 1/2/3, 1/2/3/9, 1/2]"
+_source.paths_label,VARCHAR[],100.0,17371,"[Likit Ruj, Tüm Ürünler, Makyaj, Dudak, Rossmann]"
+_source.popularite,VARCHAR,2.7,1,
+_source.price,BIGINT,100.0,830,949
+_source.qty,BIGINT,100.0,599,28
+_source.quantity_and_stock_status,VARCHAR,99.9,1,1
+_source.rating,BIGINT,100.0,6,0
+_source.rating_count,BIGINT,100.0,6,0
+_source.rating_summary,BIGINT,100.0,11,0
+_source.reviews_count,BIGINT,100.0,6,0
+_source.ross_60_price,VARCHAR,100.0,227,0.000000
+_source.ross_60_price_web,VARCHAR,100.0,227,0.000000
+_source.sac_bakim_oneri,JSON,0.0,0,
+_source.sac_bakim_rutin,JSON,51.9,7,""""""
+_source.sac_ek_filtre,VARCHAR,52.1,9,
+_source.sac_kaygi,JSON,52.1,163,""""""
+_source.sac_rengi,JSON,52.1,13,""""""
+_source.sac_teliniz,JSON,52.1,7,""""""
+_source.sac_tip_deriniz,JSON,52.1,35,""""""
+_source.sac_turu,JSON,52.1,8,""""""
+_source.sac_urun_tipi,JSON,52.1,40,""""""
+_source.size,VARCHAR,100.0,5,
+_source.sku,VARCHAR,100.0,8980,ST26040446
+_source.smell_type,VARCHAR,99.6,26,
+_source.sold,BIGINT,96.6,1544,0
+_source.spec,JSON,99.6,60,""""""
+_source.special_price,DOUBLE,100.0,860,949.0
+_source.stype,VARCHAR,99.6,15,
+_source.tax_class_id,VARCHAR,100.0,3,15
+_source.type_id,VARCHAR,100.0,1,simple
+_source.url_key,VARCHAR,100.0,8992,hince-raw-glow-gel-tint-r005-hibiscus-1-adet-p-st26040446
+_source.urun_tipi,JSON,58.2,40,""""""
+_source.utype,VARCHAR,88.9,11,
+_source.visibility,VARCHAR,100.0,1,4
+_source_object,VARCHAR,100.0,458,category/rossmann/2026-07-29/3_makyaj/07e79076693013ca6e974ae9f2827dea73fab28b9f45f4da5cba2dd25f203a86.json
+sort,BIGINT[],100.0,17691,"[1, 6440, 28932]"

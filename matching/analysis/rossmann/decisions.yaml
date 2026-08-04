@@ -1,0 +1,231 @@
+# Rossmann (raw_rossmann) kolon denetimi (2026-08-03).
+#
+# Gratis'te öğrenilen dersler burada baştan uygulandı:
+#   - clean_rossmann'ın TEK işi raw_rossmann'ı (delete kovası çıkarılmış haliyle) birebir kolon
+#     adlarıyla yansıtmak + SADECE gerçekten kirli/parse edilemeyen alanların DEĞERİNİ temizlemek.
+#     İsim değişikliği YOK, birim/tip dönüşümü YOK - o field_mapping'in (sonraki, ayrı adım) işi.
+#   - Üç kova: delete (raw_rossmann'dan TAMAMEN silinecek, mekanik liste rossmann_at.json'da
+#     olacak) / keep (clean_rossmann'da duruyor, field_mapping'e girip girmeyeceği kullanıcı
+#     kararı) / use (zaten configs/tr/rossmann.yaml field_mapping'inde kullanılıyor).
+#
+# analysis: gerçek SQL sorgusuyla doğrulanmış bulgu. reason: kararın kısa gerekçesi.
+# target: SADECE ileride field_mapping yazılırken referans - clean_rossmann kurulumunda
+#         kullanılmaz, kolon adını DEĞİŞTİRMEZ. 'use' kovasındaki target'lar zaten
+#         rossmann.yaml field_mapping'inde YAZILI OLAN kararlardır (yeni analiz değil).
+#
+# columns.csv bu dosyanın HAM veri kaynağı - python -m matching.analysis.profile_columns rossmann
+# ile yeniden üretilir.
+#
+# NOT: rossmann_at.json henüz oluşturulmadı - kullanıcı gratis'teki gibi decisions.yaml'ı
+# gözden geçirip kendi silme listesini oluşturacak.
+
+columns:
+
+  delete:
+
+    # Elasticsearch/arama motoru iç metadata'sı, ürünle ilgisi yok
+    es_ic_veri:
+      - _id
+      - _index
+      - _score
+      - _source._position_
+      - _source.entity_id
+      - _source.name_sort
+      - sort
+
+    # Tüm veri setinde sabit tek değer ya da başka bir kullanılan alanın birebir kopyası
+    sabit_veya_kopya:
+      - _source.branding
+      - _source.hair_effect
+      - _source.popularite
+      - _source.quantity_and_stock_status
+      - _source.ross_60_price_web
+      - _source.type_id
+      - _source.visibility
+
+    # Ham veride hazır ama GÜVENİLMEZ bulundu (bkz. rossmann.yaml field_mapping notu) - gerçek oranla sistematik tutarsız, doğrudan hesaplanan discount_rate kullanılıyor
+    guvenilmez_hesaplama:
+      - _source.discp
+
+    # breadcrumb (kullanılan) veya categories_ids (saklanan) ile aynı bilgiyi taşıyan, daha az düzenli/okunabilir tekrar
+    kategori_verisi_zaten_var:
+      - _source.paths
+      - _source.paths_label
+
+    # Pazarlama rozeti veya iç sistem/widget bayrağı, ürün özelliği değil
+    pazarlama_rozeti_ic_bayrak:
+      - _source.bestseller_product_widget_status
+      - _source.delist
+      - _source.german_quality
+      - _source.label1
+      - _source.label2
+      - _source.label3
+      - _source.label4
+      - _source.new_product_label
+      - _source.new_product_widget_status
+      - _source.only_rossmann
+      - _source.original_perfume
+
+    # Gerçek kozmetik/kişisel bakım özelliği ama şimdilik kapsam dışı (Gratis'teki aynı isimli kovayla tutarlı)
+    kozmetik_ozellik_kapsam_disi:
+      - _source.agec
+      - _source.bakim_turu
+      - _source.cilt_bakim_oneri
+      - _source.cilt_bakim_rutin
+      - _source.cilt_kaygi
+      - _source.cilt_tipi
+      - _source.ctype
+      - _source.factor
+      - _source.gender
+      - _source.htype
+      - _source.sac_bakim_oneri
+      - _source.sac_bakim_rutin
+      - _source.sac_ek_filtre
+      - _source.sac_kaygi
+      - _source.sac_rengi
+      - _source.sac_teliniz
+      - _source.sac_tip_deriniz
+      - _source.sac_turu
+      - _source.sac_urun_tipi
+      - _source.smell_type
+      - _source.spec
+      - _source.stype
+      - _source.urun_tipi
+      - _source.utype
+
+    # Muğlak/düşük değerli, derinlemesine analiz edilmedi
+    belirsiz_dusuk_deger:
+      - _source.freight
+      - _source.height
+      - _source.size
+
+  keep:
+  - path: _source.additional_images
+    analysis: >-
+      İKİNCİ ürün görseli (ana image_url'den farklı), AYNI path formatında
+      (base+'/media/catalog/product' ile çalışması beklenir, ayrıca doğrulanmadı).
+  - path: _source.additive_material
+    analysis: >-
+      GERÇEK kozmetik özelliği (örn. 'Alüminyumsuz', 'Alkolsüz' - deodorant iddiaları), boş olmayanlar
+      anlamlı.
+  - path: _source.categories_ids
+    analysis: >-
+      Ürünün üye olduğu TÜM kategori ID'leri (çoklu üyelik, gerçek - dedupe anahtarıyla aynı doğa).
+      breadcrumb'ın (kullanılan) tek/ana hiyerarşisinden farklı, ek/stabil sinyal.
+  - path: _source.created_at
+    analysis: "Ürün oluşturulma zaman damgası - 'yeni ürün' analizinde işe yarayabilir."
+  - path: _source.master_category_id
+    analysis: "Tek bir ana kategori ID'si, stabil."
+  - path: _source.max_sale_qty
+    analysis: "Sipariş başına maksimum adet, GERÇEKTEN değişken (3/10/10000 gibi) - sabit değil."
+  - path: _source.name1
+    analysis: >-
+      name'in markasız/varyantsız hali (örn. 'Fondöten') - name2 ile birlikte name'i bileşenlerine
+      ayırıyor.
+  - path: _source.name2
+    analysis: >-
+      name'in varyant/ton kısmı (örn. 'True Match 5N Sable/Sand') - fuzzy matching'te işe yarayabilir.
+  - path: _source.origin
+    analysis: "Menşei ülke, 29 farklı değer - Gratis'in zmensei kararıyla tutarlı."
+  - path: _source.rating
+    analysis: "%100 dolu, 0-5 arası GERÇEKTEN değişken (Gratis'in bozuk ratingAvg'inin aksine)."
+  - path: _source.rating_count
+    analysis: "rating ile tutarlı, gerçek/değişken."
+  - path: _source.rating_summary
+    analysis: "0-100 arası yüzdesel puan, 11 farklı değer."
+  - path: _source.reviews_count
+    analysis: "rating_count ile aynı doğrulukta."
+  - path: _source.sold
+    analysis: >-
+      Rossmann'ın dahili satış/popülerlik sayacı - gratis.analytics.salesCount ile AYNI kategori,
+      kullanıcının o alan için verdiği kararla (dinamik analitik tablosu için saklama) tutarlılık
+      amacıyla buraya kondu. NOT: 2026-08-02'de bu alanda bir günlük index-yeniden-kurulum bozulması
+      tespit edilmişti (bkz. proje hafızası) - kullanılacaksa o günün verisi dikkatli ele alınmalı.
+  - path: _source.tax_class_id
+    analysis: "KDV sınıfı, 3 değer - Gratis'in taxCode kararıyla tutarlı."
+
+  use:
+  - path: _category_folder
+    analysis: "MinIO obje yolundan türetilen crawl-zamanı meta veri, %100 dolu, 7 farklı değer (main_categories sayısı)."
+    reason: "Provenance - hangi kategoriden geldiği izlenebilir kalmalı."
+  - path: _fetch_date
+    analysis: "Crawl tarihi, %100 dolu."
+    reason: "Fiyat geçmişinin can damarı - dedupe ve tarih partition'ı bu alana dayanıyor."
+  - path: _row_id
+    analysis: "Ham tablodaki satır kimliği, %100 dolu, benzersiz."
+    reason: "Silver dedupe'ında deterministik sıralama anahtarı."
+  - path: _source_object
+    analysis: "MinIO obje adı, %100 dolu."
+    reason: "Provenance - hangi arşiv dosyasından geldiği izlenebilir kalmalı."
+  - path: _source.id
+    target: source_product_id
+    analysis: "product_id_field zaten bu, sayısal Magento entity ID."
+    reason: "Ürün kimliği."
+  - path: _source.sku
+    target: source_sku
+    analysis: "N=364 CSV karşılaştırmasında dolaylı doğrulandı."
+    reason: "Site içi SKU."
+  - path: _source.barcode
+    target: ean
+    analysis: "364/364 (%100) CSV'nin 'Barkod' sütunuyla birebir eşleşti."
+    reason: "Barkod - en güvenilir EAN kaynağımız."
+  - path: _source.name
+    target: name
+    analysis: "364/364 (%100) birebir eşleşti. UYARI: en az 1 üründe gizli UTF-8 BOM karakteri var."
+    reason: "Ürün adı."
+  - path: _source.brand
+    target: brand
+    analysis: "%100 dolu."
+    reason: "Marka adı."
+  - path: _source.url_key
+    target: url
+    analysis: "Tam slug, base_url + '/' ile birleştiriliyor, canlı doğrulandı."
+    reason: "Ürün sayfası URL'i."
+  - path: _source.image
+    target: image_url
+    analysis: "Göreli path, base+'/media/catalog/product' ile HEAD isteğinde 200 döndü."
+    reason: "Ürün görseli."
+  - path: _source.price
+    target: list_price_try
+    analysis: "CSV 'Standart Fiyat' ile %99.7 eşleşti, sepette doğrulandı."
+    reason: "Referans/liste fiyatı."
+  - path: _source.ross_60_price
+    target: sale_price_try (bileşen)
+    analysis: "price'tan düşükse rozetsiz/koşulsuz gösteriliyor - canlı doğrulandı."
+    reason: "Koşulsuz indirim katmanı."
+  - path: _source.special_price
+    target: sale_price_try (bileşen)
+    analysis: "ross_60_price boşsa fallback."
+    reason: "Koşulsuz indirim katmanı (2. öncelik)."
+  - path: _source.crm_price
+    target: conditional_promo_price_try (bileşen)
+    analysis: "Rossmann Card'a GERÇEKTEN koşullu - canlı sepette doğrulandı."
+    reason: "Koşullu kart fiyatı."
+  - path: _source.cmp_100_price
+    target: conditional_promo_price_try (bileşen)
+    analysis: "Sepet-eşiği kampanyası, crm yoksa devreye giriyor."
+    reason: "Koşullu kasa-önü fiyatı."
+  - path: _source.cmp_50_price
+    target: conditional_promo_price_try (bileşen)
+    analysis: "cmp_100 ile aynı mekanizma, farklı eşik."
+    reason: "Koşullu kasa-önü fiyatı."
+  - path: _source.cmp_20_price
+    target: conditional_promo_price_try (bileşen)
+    analysis: "cmp_100 ile aynı mekanizma, farklı eşik."
+    reason: "Koşullu kasa-önü fiyatı."
+  - path: _source.mnm_stock_status
+    target: stock_status_raw
+    analysis: "CSV ile %97.5 eşleşti."
+    reason: "Stok durumu metni."
+  - path: _source.is_in_stock
+    target: is_in_stock
+    analysis: "CSV'nin 'Stokta Mı?' sütunuyla %97.5 eşleşti."
+    reason: "Stok bayrağı."
+  - path: _source.qty
+    target: stock_qty
+    analysis: "Sürekli değişen canlı sayaç, CSV ile %33.1 eşleşmesi beklenen/normal."
+    reason: "Stok adedi."
+  - path: _source.breadcrumb
+    target: category_path
+    analysis: "8974/8991 (%99.81) sorunsuz parse edildi, TRY() ile güvenceye alındı."
+    reason: "Kategori hiyerarşisi."
