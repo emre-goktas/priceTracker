@@ -203,3 +203,65 @@ def normalize_gtin_lenient(raw: str | None) -> str | None:
     if not 8 <= len(digits) <= 14 or int(digits) == 0:
         return None
     return digits.rjust(14, "0")
+
+
+# --- HTML "etiket:değer" blok ayrıştırma ----------------------------------------------------
+#
+# Bazı kaynaklarda serbest metin yerine düz HTML ile kodlanmış key:value listeleri geliyor
+# (örn. Gratis'in attributes.ztedarik alanı: tedarikçi/ithalatçı yasal bilgisi). Site adı
+# bilmiyor - kalıp genel (<b>Etiket:</b> Değer<br>...), tekrar karşılaşılırsa yeniden
+# kullanılabilir.
+_LABEL_VALUE_SPLIT_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_LABEL_VALUE_PAIR_RE = re.compile(r"\s*<b>(.*?):</b>\s*(.*?)\s*$", re.IGNORECASE | re.DOTALL)
+
+
+def parse_html_label_value_blob(text: str | None) -> dict[str, str | None] | None:
+    """'<b>Etiket:</b> Değer<br>...' kalıbındaki bir HTML bloğunu {etiket: değer} sözlüğüne
+    çevirir. Boş değerler None olur, hiç eşleşme yoksa None döner (boş sözlük değil - "veri
+    yok" ile "ayrıştırılamadı" ayrımı çağıran tarafta netleşsin diye)."""
+    if not text:
+        return None
+    result: dict[str, str | None] = {}
+    for part in _LABEL_VALUE_SPLIT_RE.split(text):
+        match = _LABEL_VALUE_PAIR_RE.match(part)
+        if not match:
+            continue
+        key = html.unescape(match.group(1)).strip()
+        value = html.unescape(match.group(2)).strip()
+        if key:
+            result[key] = value or None
+    return result or None
+
+
+# --- HTML formatlı uzun metni okunabilir düz metne çevirme ----------------------------------
+#
+# Ürün açıklamaları gibi serbest metin alanları HTML ile geliyor (Gratis'in attributes.description
+# alanı: <br>/<p>/<h2>/<strong>/<i> karışık, bazen bozuk/dengesiz etiketler - <h2></h2></h2> gibi -
+# ve HTML entity'ler - &bull;/&uuml;/&ccedil; gibi). parse_html_label_value_blob'dan (yapısal
+# key:value çıkarımı) FARKLI bir amaç: burada serbest/madde işaretli DÜZ YAZI okunaklı kalsın
+# isteniyor, bir sözlüğe indirgenmiyor.
+_HTML_BLOCK_BREAK_RE = re.compile(
+    r"<br\s*/?>|<br(?=<)|</p>|<p[^>]*>|</h[1-6]>|<h[1-6][^>]*>|</div>|<div[^>]*>", re.IGNORECASE
+)
+_HTML_ANY_TAG_RE = re.compile(r"<[^>]+>")
+_MULTI_BLANK_LINE_RE = re.compile(r"\n{3,}")
+_MULTI_SPACE_RE = re.compile(r"[ \t]+")
+
+
+def html_to_plain_text(text: str | None) -> str | None:
+    """HTML'i okunabilir düz metne çevirir: blok seviyeli etiketleri (br/p/h1-6/div) satır
+    sonuna çevirir, geri kalan TÜM etiketleri (b/i/strong/span, bozuk/tanımsız etiketler dahil)
+    olduğu gibi siler (madde imi gibi görünen içerik zaten düz metinde '•' olarak duruyor,
+    etiket değil), HTML entity'lerini çözer, fazla boşluk/satırı sadeleştirir.
+
+    Etiket listesi TAM olmak zorunda değil - _HTML_ANY_TAG_RE zaten tanınmayan/bozuk her
+    etiketi (örn. Gratis verisinde görülen <vr>, <g>, dengesiz <h2></h2></h2>) güvenle atar,
+    yeni bir etiket türü çıkarsa kod değişmesine gerek yok."""
+    if not text:
+        return None
+    text = _HTML_BLOCK_BREAK_RE.sub("\n", text)
+    text = _HTML_ANY_TAG_RE.sub("", text)
+    text = html.unescape(text)
+    lines = [_MULTI_SPACE_RE.sub(" ", line).strip() for line in text.split("\n")]
+    text = _MULTI_BLANK_LINE_RE.sub("\n\n", "\n".join(lines))
+    return text.strip() or None
