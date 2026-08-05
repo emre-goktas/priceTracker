@@ -1,0 +1,92 @@
+path,dtype,fill_pct,distinct_count,sample_value
+_category_folder,VARCHAR,100.0,12,100_makyaj
+_fetch_date,DATE,100.0,2,2026-07-29
+_row_id,BIGINT,100.0,20295,0
+_source_object,VARCHAR,100.0,737,category/watsons/2026-07-29/100_makyaj/010468253f06fd23ba36a1429e560758bcc42a4e7d385af5813a1bb144bc19ff.json
+absentInHybrisProduct,BOOLEAN,100.0,1,false
+ageRestricted,BOOLEAN,100.0,1,false
+allowedOnMobileApp,BOOLEAN,100.0,1,true
+averageRating,DOUBLE,100.0,38,4.5
+categoryNameHierarchy,VARCHAR,100.0,187,Makyaj/Dudak Makyajı/Dudak Kalemi/undefined
+charity,BOOLEAN,100.0,1,false
+classifications,JSON[],100.0,1,[]
+code,VARCHAR,100.0,8788,BP_1409863
+defaultSku,VARCHAR,100.0,8786,1409863
+digitalProduct,BOOLEAN,100.0,1,false
+displayOnly,BOOLEAN,100.0,1,false
+ean,VARCHAR,100.0,8796,3616301893356
+egiftCard,BOOLEAN,100.0,1,false
+engravingEnabled,BOOLEAN,100.0,1,false
+excludeFromDiscounts,BOOLEAN,100.0,1,false
+external,BOOLEAN,100.0,1,false
+fastlane,BOOLEAN,100.0,1,false
+gwp,BOOLEAN,100.0,1,false
+hidePromotionsAndMarkdownPrice,BOOLEAN,100.0,1,false
+homeDeliveryOnly,BOOLEAN,100.0,1,false
+images,"STRUCT(format VARCHAR, imageType VARCHAR, url VARCHAR)[]",99.9,8782,"[{'format': thumbnail, 'imageType': PRIMARY, 'url': /medias/sys_master/prd-images/hf0/h91/11480450334750/prd-front-14098"
+inStockFlag,BOOLEAN,100.0,1,false
+inactive,BOOLEAN,100.0,1,false
+inactiveInHybris,BOOLEAN,100.0,1,false
+iomaHomeDeliveryAvailable,BOOLEAN,100.0,1,false
+isAgec,BOOLEAN,100.0,1,false
+isComingSoon,BOOLEAN,100.0,1,false
+isGiftWrapAvailable,BOOLEAN,100.0,1,false
+isLoyaltyProduct,BOOLEAN,100.0,1,false
+isOfflineProduct,BOOLEAN,100.0,1,false
+isProductBundle,BOOLEAN,100.0,1,false
+marketplaceProduct,BOOLEAN,100.0,1,false
+masterBrand.abrand,BOOLEAN,100.0,1,false
+masterBrand.criteoEnabled,BOOLEAN,100.0,1,false
+masterBrand.engravingEnabled,BOOLEAN,100.0,1,false
+masterBrand.hidePromotionsAndMarkdownPrice,BOOLEAN,100.0,1,false
+masterBrand.hideRoundel,BOOLEAN,100.0,1,false
+masterBrand.isAgec,BOOLEAN,100.0,1,false
+masterBrand.isNiche,BOOLEAN,100.0,1,false
+masterBrand.limitative,BOOLEAN,100.0,1,false
+masterBrand.name,VARCHAR,99.6,365,MAX FACTOR
+maxOrderQuantity,BIGINT,100.0,1,0
+minOrderQuantity,BIGINT,100.0,1,0
+modifaceEnabled,BOOLEAN,100.0,1,false
+multibuy,BOOLEAN,100.0,1,false
+name,VARCHAR,100.0,8788,Max Factor Elixir Dudak Kalemi No: 25 Brown N Bold
+newIn,BOOLEAN,100.0,1,false
+numberOfReviews,BIGINT,100.0,209,2
+ompMultidimensional,BOOLEAN,100.0,1,false
+otherPrices,"STRUCT(currencyIso VARCHAR, formattedValue VARCHAR, isTpr BOOLEAN, oldValueLabel VARCHAR, priceLabel VARCHAR, priceSource VARCHAR, priceType VARCHAR, ""value"" DOUBLE)[]",100.0,494,"[{'currencyIso': TRY, 'formattedValue': '219,90 ₺', 'isTpr': false, 'oldValueLabel': '', 'priceLabel': '', 'priceSource'"
+paidLoyalty,BOOLEAN,100.0,1,false
+pharmacy,BOOLEAN,100.0,1,false
+potentialLoyaltyPoints,BIGINT,100.0,1,0
+preOrder,BOOLEAN,100.0,1,false
+price.currencyIso,VARCHAR,100.0,1,TRY
+price.formattedValue,VARCHAR,100.0,892,"437,90 ₺"
+price.isTpr,BOOLEAN,100.0,1,false
+price.priceType,VARCHAR,100.0,1,BUY
+price.savePrice,VARCHAR,100.0,1,
+price.value,DOUBLE,100.0,892,437.9
+productLoyaltyPoints,BIGINT,100.0,1,0
+productReferences,JSON[],100.0,1,[]
+promotions,JSON[],100.0,1,[]
+purchasable,BOOLEAN,100.0,2,true
+rangeName,VARCHAR,100.0,439,MAX FACTOR
+restrictedForWishlist,BOOLEAN,100.0,1,false
+reviewDisabled,BOOLEAN,100.0,1,false
+reviewEnabled,BOOLEAN,100.0,1,true
+roundelCategoryBadge.image.url,VARCHAR,50.0,13,/medias/sys_master/images/h24/h2c/10334566744094/sadecewatsons/sadecewatsons.png
+roundelCategoryBadge.imageMaxHeight,VARCHAR,50.0,1,40
+roundelCategoryBadge.imageMaxWidth,VARCHAR,50.0,1,40
+roundelCategoryBadge.type,VARCHAR,50.0,1,ROUNDEL
+roundelCategoryBadges,"STRUCT(backgroundColorHexCode VARCHAR, image STRUCT(url VARCHAR), imageMaxHeight VARCHAR, imageMaxWidth VARCHAR, ""label"" VARCHAR, textColorHexCode VARCHAR, ""type"" VARCHAR)[]",100.0,74,"[{'backgroundColorHexCode': #000000, 'image': {'url': /medias/sys_master/images/h24/h2c/10334566744094/sadecewatsons/sad"
+showVATShip,BOOLEAN,100.0,1,false
+stock.stockLevel,BIGINT,100.0,956,18
+stock.stockLevelStatus,VARCHAR,100.0,3,inStock
+subscription,BOOLEAN,100.0,1,false
+supplierDescription,VARCHAR,100.0,238,COTY OPERATIONS B.V.
+topPromotion.badge.image.url,VARCHAR,50.0,13,/medias/sys_master/images/h24/h2c/10334566744094/sadecewatsons/sadecewatsons.png
+topPromotion.badge.imageMaxHeight,VARCHAR,50.0,1,40
+topPromotion.badge.imageMaxWidth,VARCHAR,50.0,1,40
+topPromotion.badge.type,VARCHAR,50.0,1,ROUNDEL
+topPromotion.shop4Nop,BOOLEAN,100.0,1,false
+url,VARCHAR,100.0,8804,/max-factor-elixir-dudak-kalemi-no-25-brown-n-bold/p/BP_1409863
+variantsCode,VARCHAR[],100.0,8786,[1409863]
+variantsNumber,BIGINT,100.0,1,0
+whiteLabelShopProduct,BOOLEAN,100.0,1,false

@@ -1,0 +1,226 @@
+# Watsons (raw_watsons) kolon denetimi (2026-08-05).
+#
+# Gratis + Rossmann'da izlenen süreç birebir tekrarlandı:
+#   - clean_watsons'ın TEK işi raw_watsons'ı (kullanıcının kendi kararıyla budanmış halini)
+#     birebir kolon adlarıyla yansıtmak. İsim değişikliği YOK, birim/tip dönüşümü YOK - o
+#     field_mapping'in (configs/tr/watsons.yaml, zaten YAZILI - 2026-08-02) işi.
+#   - Üç kova: delete (raw_watsons'tan TAMAMEN silinecek, mekanik/ilk taslak liste
+#     watsons_at.json'da) / keep (clean_watsons'ta duruyor, field_mapping'e girip girmeyeceği
+#     HENÜZ kararlaştırılmadı) / use (zaten configs/tr/watsons.yaml field_mapping'inde
+#     kullanılıyor - bu alan Watsons'ta Gratis/Rossmann'dan FARKLI olarak analiz öncesi bile
+#     bellidir, çünkü field_mapping 2026-08-02'de büyük ölçekli doğrulamalarla ZATEN yazılmıştı).
+#
+# ÖNEMLİ FARK (diğer 2 siteden): Watsons ham verisi Elasticsearch/arama-motoru JSON'u değil,
+# SAP Hybris commerce API çıktısı - şema tamamen farklı bir aile. Kirlilik profili de farklı:
+# kozmetik-özel öznitelik enflasyonu (Gratis/Rossmann'daki gibi) YOK, bunun yerine Hybris'in
+# STANDART e-ticaret platform özellik bayrakları (gift card, loyalty, subscription, mobile app,
+# vb.) VAR - bunların hemen hepsi tüm 20295 satırda SABİT (aynı false/true/0/boş değer), yani
+# Watsons'ın bu özellikleri sitede AKTİF KULLANMADIĞININ (ya da bu API yüzeyinde hiç açığa
+# çıkarmadığının) kanıtı - ürünle ilgili hiçbir bilgi taşımıyorlar.
+#
+# analysis: gerçek SQL sorgusuyla doğrulanmış bulgu (fill_pct/distinct_count columns.csv'den,
+# ek çapraz kontroller ayrıca çalıştırıldı - bkz. ilgili notlar). reason: kararın kısa gerekçesi.
+# target: SADECE ileride field_mapping revizyonunda referans - clean_watsons kurulumunda
+# kullanılmaz, kolon adını DEĞİŞTİRMEZ. 'use' kovasındaki target'lar zaten
+# configs/tr/watsons.yaml field_mapping'inde YAZILI OLAN kararlardır (yeni analiz değil).
+#
+# columns.csv bu dosyanın HAM veri kaynağı - python -m matching.analysis.profile_columns watsons
+# ile yeniden üretilir.
+#
+# NOT: watsons_at.json (69 kolon) mekanik/ilk taslak - kullanıcı gratis/rossmann'daki gibi
+# kendi silme listesini oluşturup onaylayacak/revize edecek.
+
+columns:
+
+  delete:
+
+    # Hybris platformunun kullanılmayan/pasif özellik bayrakları - tamamı sabit tek değer,
+    # 20295 satırın TAMAMINDA AYNI (false/0/boş) - Watsons bu özelliği sitede kullanmıyor (ya
+    # da bu API yüzeyinde açığa çıkarmıyor), ürüne özgü hiçbir bilgi taşımıyor.
+    hybris_kullanilmayan_ozellik:
+      - absentInHybrisProduct
+      - ageRestricted
+      - allowedOnMobileApp
+      - charity
+      - classifications
+      - digitalProduct
+      - displayOnly
+      - egiftCard
+      - engravingEnabled
+      - excludeFromDiscounts
+      - external
+      - fastlane
+      - gwp
+      - hidePromotionsAndMarkdownPrice
+      - homeDeliveryOnly
+      - inStockFlag
+      - inactive
+      - inactiveInHybris
+      - iomaHomeDeliveryAvailable
+      - isAgec
+      - isComingSoon
+      - isGiftWrapAvailable
+      - isLoyaltyProduct
+      - isOfflineProduct
+      - isProductBundle
+      - marketplaceProduct
+      - masterBrand.abrand
+      - masterBrand.criteoEnabled
+      - masterBrand.engravingEnabled
+      - masterBrand.hidePromotionsAndMarkdownPrice
+      - masterBrand.hideRoundel
+      - masterBrand.isAgec
+      - masterBrand.isNiche
+      - masterBrand.limitative
+      - maxOrderQuantity
+      - minOrderQuantity
+      - modifaceEnabled
+      - multibuy
+      - newIn
+      - ompMultidimensional
+      - paidLoyalty
+      - pharmacy
+      - potentialLoyaltyPoints
+      - preOrder
+      - productLoyaltyPoints
+      - productReferences
+      - promotions
+      - restrictedForWishlist
+      - reviewDisabled
+      - reviewEnabled
+      - showVATShip
+      - subscription
+      - topPromotion.shop4Nop
+      - variantsNumber
+      - whiteLabelShopProduct
+
+    # Gemini'nin field_mapping'te YAKALADIĞI 3 somut hata (bkz. configs/tr/watsons.yaml satır
+    # 92-95) - price.isTpr/priceType/savePrice 8788 satırın TAMAMINDA sabit, hiçbir indirim
+    # göstergesi taşımıyor
+    fiyat_gostergesi_degil_sabit:
+      - price.isTpr
+      - price.priceType
+      - price.savePrice
+
+    # Başka bir kolonun format kopyası - içerdiği bilgi zaten başka bir 'use' kolonunda var.
+    # price.formattedValue: price.value'nun Türkçe biçimlendirilmiş metin hali (örn. 437.9 ->
+    # '437,90 ₺') - canlı örneklerle 1:1 doğrulandı, ek bilgi taşımıyor.
+    # variantsCode: KEŞİF (2026-08-05) - defaultSku'nun tek elemanlı liste hali, 20291/20291
+    # (%100) `list_contains(variantsCode, defaultSku)` TRUE döndü. Tüm ürünler tek-varyantlı
+    # (Rossmann/Eveshop gibi), yani bu her zaman [defaultSku] - bağımsız bilgi değil.
+    format_kopyasi:
+      - price.formattedValue
+      - variantsCode
+
+    # Genel pazarlama rozeti/ikon ailesi (roundel/topPromotion), ürüne özel değil - field_mapping
+    # notunda (configs/tr/watsons.yaml, Gemini hatası #2) canlı doğrulandı:
+    # roundelCategoryBadge.image.url TÜM ürünlerde AYNI genel "Sadece Watsons'ta" ikonuna
+    # (sadecewatsons.png) işaret ediyor, ürüne özel DEĞİL - gerçek ürün görseli değil.
+    # roundelCategoryBadges (liste hali, 74 farklı kombinasyon) de aynı ailenin parçası, sadece
+    # hangi rozet(ler) gösterileceği bilgisi - kampanya/UI meta verisi, ürün özelliği değil.
+    pazarlama_rozeti_ic_bayrak:
+      - roundelCategoryBadge.image.url
+      - roundelCategoryBadge.imageMaxHeight
+      - roundelCategoryBadge.imageMaxWidth
+      - roundelCategoryBadge.type
+      - roundelCategoryBadges
+      - topPromotion.badge.image.url
+      - topPromotion.badge.imageMaxHeight
+      - topPromotion.badge.imageMaxWidth
+      - topPromotion.badge.type
+
+  keep:
+  - path: averageRating
+    analysis: "%100 dolu, 38 farklı değer (0-5 arası ondalıklı) - GERÇEK/değişken."
+    reason: "Kullanıcı puanı, fiyat takibi kapsamımızın dışında ama gerçek veri (Gratis'in reviewAverage kararıyla tutarlı)."
+  - path: numberOfReviews
+    analysis: "%100 dolu, 209 farklı değer - yorum sayısı, averageRating ile tutarlı."
+    reason: "Gratis'in reviewCount kararıyla tutarlı."
+  - path: purchasable
+    analysis: >-
+      KEŞİF (2026-08-05): %100 dolu ama SABİT DEĞİL - 20291 satır true, 4 satır false (2 ürün, 2
+      farklı crawl tarihinde). Bu 4 satır AYNI ZAMANDA variantsCode=NULL olan tek satırlar (100%
+      örtüşme) - yani 'satın alınamaz' işaretli ürünlerin gerçekten varyant/SKU bilgisi de
+      eksik, tutarlı bir 'bozuk/kaldırılmış ürün' sinyali.
+    reason: >-
+      is_in_stock'tan (stock.stockLevelStatus tabanlı) BAĞIMSIZ, olası ikinci bir "satılabilir
+      mi" sinyali - ileride stock alanlarıyla çapraz kontrol edilmeye değer, silinmemeli.
+  - path: rangeName
+    analysis: "%100 dolu, 439 farklı değer (örn. 'MAX FACTOR') - masterBrand.name'e YAKIN ama aynı değil, doğrulanmadı (alt-koleksiyon/ürün ailesi adı olabilir)."
+    reason: "Marka/koleksiyon adına yakın ek sinyal, henüz analiz edilmedi."
+  - path: supplierDescription
+    analysis: "%100 dolu, 238 farklı değer (örn. 'COTY OPERATIONS B.V.') - tedarikçi/üretici firma adı, düz metin (Gratis'in ztedarik'i gibi HTML blob DEĞİL)."
+    reason: "Gratis'in ztedarik/tedarikci_bilgisi kararıyla aynı kategori - iç analiz için saklanmaya değer."
+
+  use:
+  - path: _category_folder
+    analysis: "MinIO obje yolundan türetilen crawl-zamanı meta veri, %100 dolu, 12 farklı değer (main_categories sayısı)."
+    reason: "Provenance - hangi kategoriden geldiği izlenebilir kalmalı."
+  - path: _fetch_date
+    analysis: "Crawl tarihi, %100 dolu."
+    reason: "Fiyat geçmişinin can damarı - dedupe ve tarih partition'ı bu alana dayanıyor."
+  - path: _row_id
+    analysis: "Ham tablodaki satır kimliği, %100 dolu, benzersiz (20295/20295)."
+    reason: "Silver dedupe'ında deterministik sıralama anahtarı."
+  - path: _source_object
+    analysis: "MinIO obje adı, %100 dolu."
+    reason: "Provenance - hangi arşiv dosyasından geldiği izlenebilir kalmalı."
+  - path: code
+    target: source_product_id (id)
+    analysis: "%100 dolu, product_id_field zaten bu."
+    reason: "Ürün kimliği."
+  - path: defaultSku
+    target: source_sku
+    analysis: "code'un 'BP_' önekisiz hali."
+    reason: "Site içi SKU."
+  - path: ean
+    target: ean
+    analysis: >-
+      Kirli: bazı satırlarda virgülle 2-6 değer zincirlenmiş, aralarında geçersiz/kısa çöp
+      değerler var. Barkod ürün sayfasında hiç gösterilmiyor, canlı doğrulanamadı.
+    reason: "Tüm parçalar VARCHAR[] olarak tutulup gerçek EAN seçimi ean_match.py'ye bırakılıyor (kullanıcı kararı)."
+  - path: name
+    target: name
+    analysis: "%100 dolu, aynı ürün farklı crawl'larda farklı case ile gelebiliyor."
+    reason: "Ürün adı."
+  - path: masterBrand.name
+    target: brand
+    analysis: "%99.5 dolu, HER ZAMAN BÜYÜK HARF (Gratis/Rossmann'ın Title Case'inden farklı)."
+    reason: "Marka adı."
+  - path: url
+    target: url
+    analysis: "GÖRECELİ path - 'https://www.watsons.com.tr' + url ile birleştiriliyor, canlı doğrulandı."
+    reason: "Ürün sayfası URL'i."
+  - path: images
+    target: image_url
+    analysis: >-
+      STRUCT listesi, imageType='PRIMARY' tek eleman, göreceli path. clean_watsons'ta
+      (leaf-only filtre yüzünden) YER ALMAYACAK - silver bu alanı raw_watsons'tan doğrudan
+      okuyor (Gratis'in category_path'i gibi bir JOIN deseni).
+    reason: "Ürün görseli - roundelCategoryBadge'in aksine GERÇEK ürüne özel görsel, canlı HEAD ile doğrulandı."
+  - path: price.currencyIso
+    target: currency
+    analysis: "%100 dolu ama sabit tek değer (TRY)."
+    reason: "Para birimi."
+  - path: price.value
+    target: list_price_try
+    analysis: "%100 dolu, checkout ile doğrulandı (N=283 CSV karşılaştırması ile de doğrulandı)."
+    reason: "Referans/liste fiyatı - kabul edilen sınırlama: bazı satırlarda zaten indirimli fiyat olabilir (bkz. field_mapping notu)."
+  - path: otherPrices
+    target: sale_price_try (bileşen)
+    analysis: >-
+      STRUCT listesi, priceSource='MEMBER' filtrelenip value alınıyor. %34.7 satırda dolu -
+      kampanya penceresine göre değişiyor (07-29'da dolu, 08-01'de tamamen boş görüldü).
+    reason: "Koşulsuz/herkese açık indirimli fiyat - login gerektirmiyor, canlı doğrulandı."
+  - path: stock.stockLevelStatus
+    target: stock_status_raw + is_in_stock (bileşen)
+    analysis: "3 değer: inStock/lowStock/outOfStock, dağılım mantıklı, canlı doğrulandı."
+    reason: "Stok durumu - inStockFlag'in AKSİNE güvenilir (o alan sabit False, bozuk/kullanılmıyor)."
+  - path: stock.stockLevel
+    target: stock_qty
+    analysis: "%100 dolu, sayısal stok adedi."
+    reason: "Stok adedi."
+  - path: categoryNameHierarchy
+    target: category_path
+    analysis: "%100 dolu ama %99.9'unda sondaki segment çöp '/undefined' - regex ile kırpılıyor."
+    reason: "Kategori hiyerarşisi - üründen ürüne, hatta aynı ürünün farklı çekimlerinde değişebilir (Watsons'ın gerçek çoklu-kategori doğası)."

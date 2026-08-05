@@ -15,7 +15,7 @@
 {"column_name": "_source.discp"}
 {"column_name": "_source.entity_id"}
 {"column_name": "_source.factor"}
-{"column_name": "_source.freight"}
+{"column_name": "_source.freight"} #adet-hacim bilgisi var.
 {"column_name": "_source.gender"}
 {"column_name": "_source.german_quality"}
 {"column_name": "_source.hair_effect"}

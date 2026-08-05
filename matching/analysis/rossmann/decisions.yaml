@@ -18,6 +18,38 @@
 #
 # NOT: rossmann_at.json henüz oluşturulmadı - kullanıcı gratis'teki gibi decisions.yaml'ı
 # gözden geçirip kendi silme listesini oluşturacak.
+#
+# SON GÜNCELLEME (2026-08-05): clean_rossmann'ın kolon seti KESİNLEŞTİ.
+#   Kullanıcı kendi delete kovasını matching/analysis/rossmann/at_rossmann.json'da oluşturdu
+#   (rossmann_at.json = mekanik/ilk taslak, at_rossmann.json = kullanıcının onayladığı asıl liste,
+#   3 turda 65 satıra genişledi, son satırda "ihtiyacım yok, bu son hali" onayı verildi).
+#
+#   TUR 1 (43 kolon silindi, 92 -> 49): rossmann_at.json'daki 55 kolondan 38'i + önceden 'keep'
+#   kovasındaki 5 kolon (additive_material, origin, tax_class_id, rating, rating_count ->
+#   bkz. 'kullanici_ek_karar_2026_08_05').
+#
+#   TUR 2 (14 kolon daha silindi, 49 -> 35): 11'i TUR 1'de bekleyen mekanik liste kalıntısıydı
+#   (_position_, name_sort, paths, paths_label, sac_bakim_rutin, sac_kaygi, sac_teliniz,
+#   sac_tip_deriniz, sac_turu, sac_urun_tipi, spec). 3'ü YENİ, mekanik listede hiç yoktu, önceden
+#   'keep' kovasındaydı: _source.name2, _source.categories_ids, _source.rating_summary.
+#
+#   TUR 3 / SON (5 kolon daha silindi, 35 -> 30): _source.sac_rengi, _source.urun_tipi, sort
+#   (mekanik listede bekleyen kalıntı) + _source.additional_images, _source.reviews_count (YENİ,
+#   önceden 'keep'). field_mapping kontrolü (her yeni-eklenen kolon için, kullanıcının "wired ise
+#   sor" talimatı gereği): additive_material, origin, tax_class_id, rating, rating_count, name2,
+#   categories_ids, rating_summary, additional_images, reviews_count - HİÇBİRİ
+#   configs/tr/rossmann.yaml field_mapping'inde wired değil, silmeden önce sormaya gerek kalmadı.
+#
+#   raw_rossmann + clean_rossmann ŞU AN 30 KOLON, 26952 satır (clean_rossmann raw_rossmann'ın
+#   birebir kopyası olarak yeniden kuruldu). Kalan 3 kolon (_source.discp, _source.freight,
+#   _source.ross_60_price_web) kullanıcı kararıyla 'keep'e taşındı - AI'ın 'sil' önerisine rağmen
+#   kullanıcı SON listesine yazmadı, field_mapping aşamasında (tüm siteler bitince) tekrar
+#   değerlendirilecek. 'use' kovası (field_mapping'e hangi keep-kolonun gireceği) HENÜZ
+#   kesinleşmedi - tüm siteler bu şekilde bitince topluca oluşturulacak.
+#
+#   raw_rossmann şu an 35 kolon, 26952 satır. GEÇİCİ bir çalışma tablosu durumu - raw_rossmann
+#   zaten MinIO'dan `duckdb_pipeline --full-refresh` ile tam-kolonlu (92) yeniden kurulabilir,
+#   kalıcı bir veri kaybı değil.
 
 columns:
 
@@ -39,13 +71,8 @@ columns:
       - _source.hair_effect
       - _source.popularite
       - _source.quantity_and_stock_status
-      - _source.ross_60_price_web
       - _source.type_id
       - _source.visibility
-
-    # Ham veride hazır ama GÜVENİLMEZ bulundu (bkz. rossmann.yaml field_mapping notu) - gerçek oranla sistematik tutarsız, doğrudan hesaplanan discount_rate kullanılıyor
-    guvenilmez_hesaplama:
-      - _source.discp
 
     # breadcrumb (kullanılan) veya categories_ids (saklanan) ile aynı bilgiyi taşıyan, daha az düzenli/okunabilir tekrar
     kategori_verisi_zaten_var:
@@ -95,23 +122,35 @@ columns:
 
     # Muğlak/düşük değerli, derinlemesine analiz edilmedi
     belirsiz_dusuk_deger:
-      - _source.freight
       - _source.height
       - _source.size
 
+    # Kullanıcının kendi delete kovası (at_rossmann.json, 2026-08-05) ile eklenen, önceden
+    # 'keep' kararı verilmiş kolonlar - kullanıcı kararı revize etti, field_mapping'e
+    # girmeyeceklerine karar verdi.
+    kullanici_ek_karar_2026_08_05:
+      - _source.additive_material
+      - _source.origin
+      - _source.tax_class_id
+      - _source.rating
+      - _source.rating_count
+
+    # TUR 2 (at_rossmann.json 44-60. satırlar) - mekanik listede hiç yoktu, önceden 'keep'
+    # kovasındaydı. field_mapping'de wired değil (kontrol edildi, bkz. yukarıdaki güncelleme).
+    kullanici_ek_karar_2026_08_05_tur2:
+      - _source.name2
+      - _source.categories_ids
+      - _source.rating_summary
+
+    # TUR 3 / SON (at_rossmann.json 61-65. satırlar, 2026-08-05) - clean_rossmann'ın SON kolon
+    # kararı burada verildi. sac_rengi/urun_tipi/sort zaten yukarıdaki mekanik kovalarda vardı
+    # (artık fiilen de silindi). additional_images ve reviews_count YENİ - önceden 'keep'
+    # kovasındaydı, field_mapping'de wired değil (kontrol edildi).
+    kullanici_son_karar_2026_08_05_tur3:
+      - _source.additional_images
+      - _source.reviews_count
+
   keep:
-  - path: _source.additional_images
-    analysis: >-
-      İKİNCİ ürün görseli (ana image_url'den farklı), AYNI path formatında
-      (base+'/media/catalog/product' ile çalışması beklenir, ayrıca doğrulanmadı).
-  - path: _source.additive_material
-    analysis: >-
-      GERÇEK kozmetik özelliği (örn. 'Alüminyumsuz', 'Alkolsüz' - deodorant iddiaları), boş olmayanlar
-      anlamlı.
-  - path: _source.categories_ids
-    analysis: >-
-      Ürünün üye olduğu TÜM kategori ID'leri (çoklu üyelik, gerçek - dedupe anahtarıyla aynı doğa).
-      breadcrumb'ın (kullanılan) tek/ana hiyerarşisinden farklı, ek/stabil sinyal.
   - path: _source.created_at
     analysis: "Ürün oluşturulma zaman damgası - 'yeni ürün' analizinde işe yarayabilir."
   - path: _source.master_category_id
@@ -122,28 +161,29 @@ columns:
     analysis: >-
       name'in markasız/varyantsız hali (örn. 'Fondöten') - name2 ile birlikte name'i bileşenlerine
       ayırıyor.
-  - path: _source.name2
-    analysis: >-
-      name'in varyant/ton kısmı (örn. 'True Match 5N Sable/Sand') - fuzzy matching'te işe yarayabilir.
-  - path: _source.origin
-    analysis: "Menşei ülke, 29 farklı değer - Gratis'in zmensei kararıyla tutarlı."
-  - path: _source.rating
-    analysis: "%100 dolu, 0-5 arası GERÇEKTEN değişken (Gratis'in bozuk ratingAvg'inin aksine)."
-  - path: _source.rating_count
-    analysis: "rating ile tutarlı, gerçek/değişken."
-  - path: _source.rating_summary
-    analysis: "0-100 arası yüzdesel puan, 11 farklı değer."
-  - path: _source.reviews_count
-    analysis: "rating_count ile aynı doğrulukta."
   - path: _source.sold
     analysis: >-
       Rossmann'ın dahili satış/popülerlik sayacı - gratis.analytics.salesCount ile AYNI kategori,
       kullanıcının o alan için verdiği kararla (dinamik analitik tablosu için saklama) tutarlılık
       amacıyla buraya kondu. NOT: 2026-08-02'de bu alanda bir günlük index-yeniden-kurulum bozulması
       tespit edilmişti (bkz. proje hafızası) - kullanılacaksa o günün verisi dikkatli ele alınmalı.
-  - path: _source.tax_class_id
-    analysis: "KDV sınıfı, 3 değer - Gratis'in taxCode kararıyla tutarlı."
-
+  - path: _source.discp
+    analysis: >-
+      AI önerisi 'sil' idi (bkz. eski guvenilmez_hesaplama notu: 'İndirim oranı, gerçek oranla
+      sistematik tutarsız, doğrudan hesaplanan discount_rate kullanılıyor') ama kullanıcı SON
+      kararında (2026-08-05, at_rossmann.json) bunu delete listesine YAZMADI - şimdilik keep,
+      field_mapping'e girip girmeyeceği ileride (tüm siteler bitince use kovası kurulurken)
+      tekrar değerlendirilecek.
+  - path: _source.freight
+    analysis: >-
+      Kullanıcı notu (2026-08-05, rossmann_at.json üzerine yazıldı): "adet-hacim bilgisi var" -
+      sadece kargo/navlun değil ürün adet/hacim verisi taşıyor olabilir şüphesi var. Kullanıcı
+      SON kararında delete listesine yazmadı - keep, field_mapping aşamasında içerik incelenecek.
+  - path: _source.ross_60_price_web
+    analysis: >-
+      AI önerisi 'sil' idi (ross_60_price'ın web görünümü kopyası şüphesiyle, doğrulanmadı) ama
+      kullanıcı SON listesine yazmadı - keep, field_mapping aşamasında ross_60_price ile
+      karşılaştırılıp gerçekten kopya mı diye teyit edilecek.
   use:
   - path: _category_folder
     analysis: "MinIO obje yolundan türetilen crawl-zamanı meta veri, %100 dolu, 7 farklı değer (main_categories sayısı)."
@@ -179,11 +219,22 @@ columns:
     reason: "Marka adı."
   - path: _source.url_key
     target: url
-    analysis: "Tam slug, base_url + '/' ile birleştiriliyor, canlı doğrulandı."
+    analysis: >-
+      Tam slug, base_url + '/' ile birleştiriliyor, canlı doğrulandı. Formül (configs/tr/rossmann.yaml
+      field_mapping, satır 135): 'https://www.rossmann.com.tr/' || "_source.url_key" - url_key
+      zaten TAM slug (örn. 'babydream-bebek-alt-degistirme-ortusu-10-adet-p-sr12062947'), sadece
+      base_url + '/' eklemek yeterli.
     reason: "Ürün sayfası URL'i."
   - path: _source.image
     target: image_url
-    analysis: "Göreli path, base+'/media/catalog/product' ile HEAD isteğinde 200 döndü."
+    analysis: >-
+      Göreli path (örn. '/4/2/426e14f0....jpeg'). Formül (configs/tr/rossmann.yaml field_mapping,
+      satır 136): 'https://www.rossmann.com.tr/media/catalog/product' || "_source.image" - canlı
+      doğrulandı (2026-08-05), HEAD isteği 200 image/jpeg, 62404 byte (TAM/orijinal çözünürlük).
+      NOT: kullanıcının devtools'ta gördüğü 'cdn.rossmann.com.tr/mnresize/126/126/...' deseni bu
+      DEĞİL - o, sitenin listeleme sayfasında kullandığı 126x126 küçük thumbnail'i üreten ayrı bir
+      resize-proxy (aynı path'le denendi: 200 ama sadece 6033 byte). Mevcut formül daha doğrusu,
+      tam boyutlu orijinali veriyor - değişiklik gerekmiyor.
     reason: "Ürün görseli."
   - path: _source.price
     target: list_price_try
