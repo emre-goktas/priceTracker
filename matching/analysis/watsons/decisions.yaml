@@ -29,6 +29,42 @@
 #
 # NOT: watsons_at.json (69 kolon) mekanik/ilk taslak - kullanıcı gratis/rossmann'daki gibi
 # kendi silme listesini oluşturup onaylayacak/revize edecek.
+#
+# 1. SEANS (2026-08-05, İLK ETAP - son karar değil): kullanıcı kendi delete kovasını
+# matching/analysis/watsons/at_watsons.text'te oluşturdu (57 satır). raw_watsons'tan 57 kolon
+# silindi (91 -> 34, 20295 satır korunuyor):
+#   - hybris_kullanilmayan_ozellik (55) kovasından 52'si (3'ü ATLANMIŞ, henüz silinmedi -
+#     raw_watsons'ta duruyor: gwp, hidePromotionsAndMarkdownPrice, productLoyaltyPoints).
+#   - fiyat_gostergesi_degil_sabit (3) - tamamı silindi.
+#   - format_kopyasi (2) ve pazarlama_rozeti_ic_bayrak (9) kovalarına HİÇ dokunulmadı, hepsi
+#     raw_watsons'ta duruyor.
+#   - EK: kullanıcı önceden 'keep' kararı verilen 'purchasable'ı da sildi (bkz.
+#     kullanici_ek_karar_2026_08_05) - AI'ın "silinmesin, olası ikinci stok sinyali" önerisine
+#     rağmen kullanıcı ilk etapta atmayı tercih etti.
+#   - EK/ÖNEMLİ: kullanıcı 'price.currencyIso'yu da (önceden 'use' kovasında, currency
+#     target'ı) sildi - "TR bölgesindeyiz, her şey TRY zaten" gerekçesiyle. Bu Gratis/Rossmann'da
+#     yaşanan AYNI durum - field_mapping'teki currency stratejisi direct_path'ten static'e
+#     çevrildi (configs/tr/watsons.yaml), raw kolona artık ihtiyaç yok.
+#
+# 2. SEANS (2026-08-05, aynı gün, at_watsons.text satır 59-71'e eklendi): 10 kolon daha silindi
+# (34 -> 23): gwp, hidePromotionsAndMarkdownPrice, productLoyaltyPoints (hybris kovasından
+# kalan 3'ü), roundelCategoryBadge.imageMaxHeight/imageMaxWidth/type, roundelCategoryBadges,
+# topPromotion.badge.imageMaxHeight/imageMaxWidth/type (rozet ailesinden 7'si).
+#   EK: kullanıcı 'variantsCode' için "emin değilim nedir" notu düştü, araştırma istedi.
+#   SONUÇ (2026-08-05): defaultSku'nun tek elemanlı liste hali - 20291/20291 (%100)
+#   `list_contains(variantsCode, defaultSku)` TRUE. Tüm ürünler tek-varyantlı, bağımsız bilgi
+#   taşımıyor - kullanıcı bu sonuca göre sildi (bkz. format_kopyasi notu).
+#
+# 3. SEANS / SON (2026-08-05, aynı gün): kalan 3 kolon da (price.formattedValue,
+# roundelCategoryBadge.image.url, topPromotion.badge.image.url) kullanıcı onayıyla silindi -
+# "işimize yaramıyor" gerekçesiyle, format_kopyasi + pazarlama_rozeti_ic_bayrak kovaları
+# TAMAMEN kapandı.
+#
+# raw_watsons + clean_watsons ŞU AN 20 KOLON, 20295 satır (clean_watsons raw_watsons'ın birebir
+# kopyası olarak kuruldu - Rossmann'daki final desenle tutarlı). Watsons'ın delete/keep ayrımı
+# BURADA KESİNLEŞTİ (91 -> 20, 71 kolon silindi). 'use' kovası (field_mapping'e hangi
+# keep-kolonun gireceği) HENÜZ kesinleşmedi - tüm siteler bitince topluca ele alınacak
+# (Rossmann'daki gibi).
 
 columns:
 
@@ -129,6 +165,19 @@ columns:
       - topPromotion.badge.imageMaxWidth
       - topPromotion.badge.type
 
+    # Kullanıcının kendi delete kovası (at_watsons.text, 2026-08-05, 1. seans) ile eklenen,
+    # önceden 'keep' kararı verilmiş kolon - kullanıcı kararı revize etti.
+    kullanici_ek_karar_2026_08_05:
+      - purchasable
+
+    # price.currencyIso: önceden 'use' kovasındaydı (currency target'ı, direct_path). Kullanıcı
+    # kararıyla (2026-08-05) silindi - proje kapsamı sadece TR (CLAUDE.md), alan zaten sabit tek
+    # değer (%100 TRY) taşıyordu. Gratis/Rossmann'daki AYNI durumla tutarlı: field_mapping'teki
+    # currency stratejisi direct_path'ten static'e çevrildi (configs/tr/watsons.yaml,
+    # field_mapping -> currency), raw kolona artık ihtiyaç yok.
+    kullanici_ek_karar_2026_08_05_currency:
+      - price.currencyIso
+
   keep:
   - path: averageRating
     analysis: "%100 dolu, 38 farklı değer (0-5 arası ondalıklı) - GERÇEK/değişken."
@@ -136,15 +185,6 @@ columns:
   - path: numberOfReviews
     analysis: "%100 dolu, 209 farklı değer - yorum sayısı, averageRating ile tutarlı."
     reason: "Gratis'in reviewCount kararıyla tutarlı."
-  - path: purchasable
-    analysis: >-
-      KEŞİF (2026-08-05): %100 dolu ama SABİT DEĞİL - 20291 satır true, 4 satır false (2 ürün, 2
-      farklı crawl tarihinde). Bu 4 satır AYNI ZAMANDA variantsCode=NULL olan tek satırlar (100%
-      örtüşme) - yani 'satın alınamaz' işaretli ürünlerin gerçekten varyant/SKU bilgisi de
-      eksik, tutarlı bir 'bozuk/kaldırılmış ürün' sinyali.
-    reason: >-
-      is_in_stock'tan (stock.stockLevelStatus tabanlı) BAĞIMSIZ, olası ikinci bir "satılabilir
-      mi" sinyali - ileride stock alanlarıyla çapraz kontrol edilmeye değer, silinmemeli.
   - path: rangeName
     analysis: "%100 dolu, 439 farklı değer (örn. 'MAX FACTOR') - masterBrand.name'e YAKIN ama aynı değil, doğrulanmadı (alt-koleksiyon/ürün ailesi adı olabilir)."
     reason: "Marka/koleksiyon adına yakın ek sinyal, henüz analiz edilmedi."
@@ -194,14 +234,20 @@ columns:
   - path: images
     target: image_url
     analysis: >-
-      STRUCT listesi, imageType='PRIMARY' tek eleman, göreceli path. clean_watsons'ta
-      (leaf-only filtre yüzünden) YER ALMAYACAK - silver bu alanı raw_watsons'tan doğrudan
-      okuyor (Gratis'in category_path'i gibi bir JOIN deseni).
-    reason: "Ürün görseli - roundelCategoryBadge'in aksine GERÇEK ürüne özel görsel, canlı HEAD ile doğrulandı."
-  - path: price.currencyIso
-    target: currency
-    analysis: "%100 dolu ama sabit tek değer (TRY)."
-    reason: "Para birimi."
+      STRUCT listesi (format/imageType/url), TEK eleman - format HER ZAMAN 'thumbnail',
+      imageType HER ZAMAN 'PRIMARY' (20283/20295) - başka boy/varyant hiç sunulmuyor, path'in
+      içinde bile '_195x195' geçiyor (örn. '.../prd-front-1409863_195x195/...'). Göreceli path,
+      'https://www.watsons.com.tr' + url ile birleştiriliyor. Canlı doğrulandı (2026-08-05): DÜZ
+      curl 403 (Akamai bot koruması) döndü ama curl_cffi (impersonate=chrome120 - crawler'ın zaten
+      category_search_api için kullandığı yöntem) ile 200, image/avif, 803 byte.
+    reason: >-
+      Ürün görseli - roundelCategoryBadge'in aksine GERÇEK ürüne özel görsel, canlı HEAD ile
+      doğrulandı. DÜZELTME (2026-08-05, kullanıcı kararı): önceden clean_watsons'ta YER
+      ALMAYACAKTI (liste tipli sütun, leaf-only varsayımı) - kullanıcı bunu Gratis'in
+      description_temiz istisnasıyla AYNI mantıkla ("sadece gerçekten kullanılamaz alanın DEĞERİ
+      temizlenir") clean_watsons'a eklenmesini istedi. Uygulandı: clean_watsons'ta ham 'images'
+      STRUCT listesi SİLİNDİ, yerine hesaplanmış düz metin 'image_url' kolonu eklendi
+      (raw_watsons'taki ham 'images' DOKUNULMADI, hâlâ orijinal haliyle duruyor).
   - path: price.value
     target: list_price_try
     analysis: "%100 dolu, checkout ile doğrulandı (N=283 CSV karşılaştırması ile de doğrulandı)."

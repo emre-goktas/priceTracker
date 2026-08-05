@@ -1,0 +1,51 @@
+path,dtype,fill_pct,distinct_count,sample_value
+_category_folder,VARCHAR,100.0,9,anne-bebek_anne_bebek
+_fetch_date,DATE,100.0,2,2026-07-30
+_row_id,BIGINT,100.0,15402,0
+_source_object,VARCHAR,100.0,863,category/eveshop/2026-07-30/anne-bebek_anne_bebek/153c756e2408ae693314988de3129e1f4720881469faf90bbf20153c54624f01.html
+available,BOOLEAN,100.0,2,true
+brand,VARCHAR,100.0,277,JOHNSONS BABY
+can_show_preorder,BOOLEAN,100.0,1,false
+category_hierarchy,VARCHAR,100.0,58,Eve Genel Hiyerarşi > ANNE& BEBEK BAKIM > BEBEK KOZMETİK
+collections,VARCHAR,100.0,6606,||348195487882||332889686154||347497496714||329081389194||329098756234||329099018378||330040148106||331749261450||330832
+compare_at_price,BIGINT,100.0,1,0
+container,VARCHAR,100.0,1,card
+diff_day_create,DOUBLE,100.0,748,351.25
+diff_day_publish,DOUBLE,100.0,1132,351.25
+eve_price,BIGINT,100.0,918,13900
+image_url,VARCHAR,100.0,7246,https://www.eveshop.com.tr/cdn/shop/files/1020951_1_LARGE_982f0bac-248e-43b2-919d-bf6393f2381c.jpg?v=1758759618
+inventory_management,VARCHAR,100.0,1,shopify
+inventory_policy,VARCHAR,100.0,1,deny
+metafield_label.custom.pdp_plp_badge,VARCHAR,100.0,1,
+price,BIGINT,100.0,1089,23000
+price_with_currency,VARCHAR,100.0,1089,230.00 TL
+product_id,BIGINT,100.0,7246,8644513759370
+product_url,VARCHAR,100.0,7251,/products/bebek-yagi-200ml-000000000001020951
+published_at,VARCHAR,100.0,4877,2025-08-13 14:48:25 +0300
+qty,BIGINT,100.0,220,38
+sale_amount,VARCHAR,100.0,1089,-230.00 TL
+title,VARCHAR,100.0,7182,Bebek Yağı 200ml
+variant.available,BOOLEAN,100.0,2,true
+variant.barcode,VARCHAR,100.0,7251,3574669909150
+variant.compare_at_price,JSON,0.0,0,
+variant.featured_image,JSON,0.0,0,
+variant.id,BIGINT,100.0,7246,46596445208714
+variant.inventory_management,VARCHAR,100.0,1,shopify
+variant.name,VARCHAR,100.0,7202,Bebek Yağı 200ml - STD / STD
+variant.option1,VARCHAR,100.0,101,STD
+variant.option2,VARCHAR,100.0,2,STD
+variant.option3,JSON,0.0,0,
+variant.options,VARCHAR[],100.0,111,"[STD, STD]"
+variant.price,BIGINT,100.0,1089,23000
+variant.public_title,VARCHAR,100.0,111,STD / STD
+variant.quantity_rule.increment,BIGINT,100.0,1,1
+variant.quantity_rule.max,JSON,0.0,0,
+variant.quantity_rule.min,BIGINT,100.0,1,1
+variant.requires_selling_plan,BOOLEAN,100.0,1,false
+variant.requires_shipping,BOOLEAN,100.0,1,true
+variant.selling_plan_allocations,JSON[],100.0,1,[]
+variant.sku,VARCHAR,100.0,7246,000000000001020951
+variant.taxable,BOOLEAN,100.0,1,true
+variant.title,VARCHAR,100.0,111,STD / STD
+variant.weight,BIGINT,100.0,1,0
+variant_id,BIGINT,100.0,7246,46596445208714
