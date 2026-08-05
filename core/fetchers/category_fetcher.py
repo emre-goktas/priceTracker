@@ -91,6 +91,46 @@ def _log_completeness(
         )
 
 
+async def _fetch_one_category(
+    config: dict, site: str, category_id: str, category_name: str,
+    archive_extension: str, archive_content_type: str,
+) -> None:
+    """Bir kategorinin tüm sayfalarını (sıralı, kendi delay_seconds temposunda) çeker ve
+    arşivler. Sayfalar arası bekleme base_parser.fetch_category_pages İÇİNDE uygulanıyor -
+    bu fonksiyon kategori-seviyesinde sıralı mı paralel mi çağrıldığından bağımsız, aynı
+    kalır (bkz. fetch_site_categories -> max_concurrent_categories)."""
+    try:
+        page_count = 0
+        blocked_count = 0
+        collected_items = 0
+        last_page: base_parser.CategoryPage | None = None
+
+        async for result in base_parser.fetch_category_pages(config, category_id):
+            object_name = write_category_page(
+                site, category_id, category_name, result.page, result.http_status, result.content,
+                extension=archive_extension, content_type=archive_content_type,
+            )
+            page_count += 1
+            collected_items += result.item_count
+            last_page = result
+            if result.http_status == 200:
+                logger.info(
+                    f"{site}: kategori {category_id} ({category_name}) sayfa {result.page} "
+                    f"arşivlendi ({result.item_count} ürün) -> {object_name}"
+                )
+            else:
+                blocked_count += 1
+                logger.warning(
+                    f"{site}: kategori {category_id} ({category_name}) sayfa {result.page} "
+                    f"HTTP {result.http_status} (BLOK/HATA) -> {object_name}"
+                )
+
+        _log_completeness(site, category_id, category_name, page_count, blocked_count,
+                          collected_items, last_page)
+    except Exception as exc:
+        logger.error(f"{site}: kategori {category_id} ({category_name}) işlenemedi - {exc}")
+
+
 async def fetch_site_categories(plugin) -> None:
     site = plugin.SITE_NAME
     config = plugin.load_config()
@@ -99,48 +139,49 @@ async def fetch_site_categories(plugin) -> None:
     # (veritabanı/API key'i, kolay değişmez). category_discovery orada referans olarak duruyor,
     # normal akışta çalıştırılmaz — selfheal katmanında drift kontrolü için değerlendirilecek.
     categories = [(entry["id"], entry["name"]) for entry in config["main_categories"]]
-    delay_seconds = config.get("rate_limit", {}).get("delay_seconds", 1.5)
-    # Varsayılan JSON (Gratis/Watsons/Rossmann'ın kategori API yanıtı) - HTML kazıyan siteler
-    # (Eveshop) configs/tr/{site}.yaml -> archive ile override eder (bkz. core/storage.py).
+    rate_cfg = config.get("rate_limit", {})
+    delay_seconds = rate_cfg.get("delay_seconds", 1.5)
+    # OPSİYONEL (2026-08-05 EKLENDİ): configs/tr/{site}.yaml -> rate_limit.max_concurrent_categories
+    # yoksa/1 ise DAVRANIŞ DEĞİŞMEZ - kategoriler eskisi gibi sıralı, aralarında delay_seconds
+    # beklemeli işlenir. >1 verilirse kategoriler asyncio.Semaphore ile sınırlı EŞZAMANLI işlenir
+    # (her kategorinin KENDİ sayfa-içi temposu/delay_seconds'ı AYNI kalır - sadece kategoriler
+    # arası sıra bekleme kalkar). Eveshop için eklendi: 444 sayfa TAMAMEN sıralı ~19dk sürüyordu,
+    # kategori dağılımı çok dengesiz (makyaj tek başına sayfaların %43'ü) - kategori paralelliği
+    # teorik tavanı ~9x değil ~2.3x (darboğaz = en büyük kategorinin kendi sırası). Diğer
+    # sitelerde config'e eklenmediği sürece hiçbir etkisi yok (özellikle Gratis - WAF'ın hızlı
+    # art arda isteklere 403 verdiği ampirik olarak biliniyor, kategori paralelliği ORADA
+    # bilinçli olarak AÇILMADI).
+    max_concurrent = rate_cfg.get("max_concurrent_categories", 1)
     archive_cfg = config.get("archive", {})
     archive_extension = archive_cfg.get("extension", "json")
     archive_content_type = archive_cfg.get("content_type", "application/json")
-    logger.info(f"{site}: {len(categories)} ana kategori (config'ten)")
+    logger.info(
+        f"{site}: {len(categories)} ana kategori (config'ten)"
+        + (f", eşzamanlı (max {max_concurrent})" if max_concurrent > 1 else ", sıralı")
+    )
 
-    for index, (category_id, category_name) in enumerate(categories):
-        if index > 0:
-            await asyncio.sleep(delay_seconds)  # kategoriler arası da bekleme - art arda istek WAF'ı tetikleyebiliyor
+    if max_concurrent <= 1:
+        for index, (category_id, category_name) in enumerate(categories):
+            if index > 0:
+                await asyncio.sleep(delay_seconds)  # kategoriler arası da bekleme - art arda istek WAF'ı tetikleyebiliyor
+            await _fetch_one_category(config, site, category_id, category_name,
+                                       archive_extension, archive_content_type)
+        return
 
-        try:
-            page_count = 0
-            blocked_count = 0
-            collected_items = 0
-            last_page: base_parser.CategoryPage | None = None
+    semaphore = asyncio.Semaphore(max_concurrent)
 
-            async for result in base_parser.fetch_category_pages(config, category_id):
-                object_name = write_category_page(
-                    site, category_id, category_name, result.page, result.http_status, result.content,
-                    extension=archive_extension, content_type=archive_content_type,
-                )
-                page_count += 1
-                collected_items += result.item_count
-                last_page = result
-                if result.http_status == 200:
-                    logger.info(
-                        f"{site}: kategori {category_id} ({category_name}) sayfa {result.page} "
-                        f"arşivlendi ({result.item_count} ürün) -> {object_name}"
-                    )
-                else:
-                    blocked_count += 1
-                    logger.warning(
-                        f"{site}: kategori {category_id} ({category_name}) sayfa {result.page} "
-                        f"HTTP {result.http_status} (BLOK/HATA) -> {object_name}"
-                    )
+    async def _bounded(index: int, category_id: str, category_name: str) -> None:
+        # Aynı anda TAMAMI birden başlamasın diye küçük bir kademeli gecikme (burst önleme) -
+        # semaphore zaten üst sınırı koruyor, bu sadece başlangıç anını yayıyor.
+        await asyncio.sleep(index * 0.5)
+        async with semaphore:
+            await _fetch_one_category(config, site, category_id, category_name,
+                                       archive_extension, archive_content_type)
 
-            _log_completeness(site, category_id, category_name, page_count, blocked_count,
-                              collected_items, last_page)
-        except Exception as exc:
-            logger.error(f"{site}: kategori {category_id} ({category_name}) işlenemedi - {exc}")
+    await asyncio.gather(*(
+        _bounded(index, category_id, category_name)
+        for index, (category_id, category_name) in enumerate(categories)
+    ))
 
 
 async def run_category_fetch() -> None:

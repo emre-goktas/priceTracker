@@ -1,0 +1,190 @@
+# Eveshop (raw_eveshop) kolon denetimi (2026-08-05).
+#
+# Gratis + Rossmann + Watsons'da izlenen süreç birebir tekrarlandı:
+#   - clean_eveshop'un TEK işi raw_eveshop'u (kullanıcının kendi kararıyla budanmış halini)
+#     birebir kolon adlarıyla yansıtmak. İsim değişikliği YOK, birim/tip dönüşümü YOK - o
+#     field_mapping'in (configs/tr/eveshop.yaml, zaten YAZILI - 2026-08-02) işi.
+#   - Üç kova: delete (raw_eveshop'tan TAMAMEN silinecek, mekanik/ilk taslak liste
+#     eveshop_at.json'da) / keep (clean_eveshop'ta duruyor, field_mapping'e girip girmeyeceği
+#     HENÜZ kararlaştırılmadı) / use (zaten configs/tr/eveshop.yaml field_mapping'inde
+#     kullanılıyor - Watsons'taki gibi field_mapping analiz öncesi bile bellidir, 2026-08-02'de
+#     büyük ölçekli doğrulamalarla ZATEN yazılmıştı).
+#
+# ÖNEMLİ FARK (diğer 3 siteden): Eveshop ham verisi Elasticsearch/arama motoru JSON'u DEĞİL,
+# Shopify HTML kazımasından 3 AYRI gömülü JSON kaynağının birleşimi (bkz. configs/tr/eveshop.yaml
+# raw_html_extraction notu): x-labels-data (fiyat), x-variants-data (barkod/sku, 'variant.'
+# önekiyle birleştiriliyor), analytics_regex (marka/görsel/kategori). Bu üçlü kaynak yapısı
+# YİNELENEN alan çiftleri yaratmış - ana obje ile variant.* öneki ALTINDAKİ karşılığı çoğu zaman
+# BİREBİR AYNI (tek-varyantlı ürün yapısı yüzünden, bkz. config notu: 0/3277 çok-varyantlı).
+# SQL ile doğrulandı (2026-08-05, N=15402): available == variant.available (%100),
+# variant_id == variant.id (%100), price == variant.price (%100), variant.title ==
+# variant.public_title (%100) - dördü de gerçek kopya, tesadüf değil.
+#
+# analysis: gerçek SQL sorgusuyla doğrulanmış bulgu (fill_pct/distinct_count columns.csv'den,
+# ek çapraz kontroller ayrıca çalıştırıldı). reason: kararın kısa gerekçesi.
+# target: SADECE ileride field_mapping revizyonunda referans - clean_eveshop kurulumunda
+# kullanılmaz, kolon adını DEĞİŞTİRMEZ. 'use' kovasındaki target'lar zaten
+# configs/tr/eveshop.yaml field_mapping'inde YAZILI OLAN kararlardır (yeni analiz değil).
+#
+# columns.csv bu dosyanın HAM veri kaynağı - python -m matching.analysis.profile_columns eveshop
+# ile yeniden üretilir.
+#
+# NOT: eveshop_at.json (28 kolon) mekanik/ilk taslak - kullanıcı diğer 3 sitedeki gibi kendi
+# silme listesini oluşturup onaylayacak/revize edecek.
+#
+# SON KARAR (2026-08-05): Diğer 3 siteden farklı olarak kullanıcı burada kendi listesini
+# tam çıkarmadı - "sıkıldım, sen incele, field_mapping'te wired olanı silme" dedi, kendi
+# tespit edebildiği 18 kolonu (15'i mekanik eveshop_at.json ile zaten örtüşüyordu) başlangıç
+# noktası olarak verdi. Mekanik 28 kolon + kullanıcının listesindeki, mekanik listede
+# OLMAYAN 3 EK kolon (aşağıda) BİRLEŞTİRİLİP toplam 31 kolon tek seferde silindi (50 -> 19).
+#   EK 3 kolon (önceden 'keep' kovasındaydı, kullanıcı kararıyla revize edildi):
+#     - collections: opak ama stabil çoklu-kategori ID listesi, ileride taksonomi eşlemesi
+#       yapılırsa işe yarayabilirdi.
+#     - variant.option1: KEŞİF - içinde gerçek renk/ton çeşitliliği vardı (STD dışında 651
+#       SİYAH, 543 TEN, 525 PEMBE, ...) - sabit değer değildi, ama kullanıcı yine de attı.
+#     - variant_id: field_mapping'te wired DEĞİL ama raw_html_extraction.variant_join_key
+#       olarak tanımlıydı (3 kaynaklı HTML join anahtarı) - tablo zaten kurulduktan sonra bu
+#       rolü etkilemiyor, silinmesi güvenli (join işlemi raw_eveshop İNŞA EDİLİRKEN, yani
+#       matching/duckdb_pipeline.py çalışırken oluyor - tablo üzerinde SONRADAN kolon silmek
+#       bunu bozmaz, sadece bir sonraki --full-refresh'te bu kolon YİNE üretilir).
+#   image_url ile ilgili özel bir temizlik adımı GEREKMEDİ (Watsons'ın aksine): ham image_url
+#   zaten TAM/mutlak URL olarak geliyor (field_mapping: strategy direct_path, birleştirme
+#   formülü yok) - clean_eveshop'ta hiç değişmeden duruyor.
+#
+# raw_eveshop + clean_eveshop ŞU AN 19 KOLON, 15402 satır (clean_eveshop raw_eveshop'un birebir
+# kopyası). Watsons/Rossmann'daki final desenle tutarlı. 'use' kovası (field_mapping'e hangi
+# keep-kolonun gireceği) HENÜZ kesinleşmedi - tüm siteler bitince topluca ele alınacak.
+
+columns:
+
+  delete:
+
+    # Shopify platform-standart alanlar, tüm 15402 satırda AYNI sabit değer - ürüne özgü hiçbir
+    # bilgi taşımıyor (Watsons'ın hybris_kullanilmayan_ozellik kovasıyla aynı kategori)
+    shopify_sabit_platform_alani:
+      - can_show_preorder
+      - compare_at_price
+      - container
+      - inventory_management
+      - inventory_policy
+      - metafield_label.custom.pdp_plp_badge
+      - variant.compare_at_price
+      - variant.featured_image
+      - variant.inventory_management
+      - variant.option3
+      - variant.quantity_rule.increment
+      - variant.quantity_rule.max
+      - variant.quantity_rule.min
+      - variant.requires_selling_plan
+      - variant.requires_shipping
+      - variant.selling_plan_allocations
+      - variant.taxable
+      - variant.weight
+
+    # SQL ile doğrulanmış TAM kopya (bkz. yukarıdaki not) - ana kayıttaki 'use' kolonunun
+    # variant.* önekli birebir tekrarı, üç-kaynaklı HTML kazıma yapısının bir sonucu
+    variant_prefix_tam_kopya:
+      - variant.available
+      - variant.id
+      - variant.price
+
+    # Başka kolon(lar)ın format/birleşim kopyası, bağımsız bilgi taşımıyor
+    format_kopyasi:
+      - price_with_currency
+      - variant.name
+      - variant.options
+      - variant.public_title
+      - variant.title
+
+    # İsmine rağmen yanıltıcı/anlamsız - field_mapping'in kendi notunda (configs/tr/eveshop.yaml
+    # discount_rate) doğrulandı: her zaman -price'a eşit, gerçek indirim farkıyla ilgisi yok
+    yaniltici_isimli_kullanilmayan:
+      - sale_amount
+
+    # Düşük çeşitlilik/değer - option2 15302/15402 satırda 'STD' (sabit), kalan 100'ü tek bir
+    # numerik kod ('1020') - gerçek bir varyant ayrımı taşımıyor
+    belirsiz_dusuk_deger:
+      - variant.option2
+
+    # Kullanıcının kendi delete kovası (2026-08-05) ile eklenen, önceden 'keep' kararı verilmiş
+    # kolonlar - kullanıcı kararı revize etti. collections: opak ama stabil çoklu-kategori ID
+    # listesi. variant.option1: KEŞİF - içinde gerçek renk/ton çeşitliliği vardı (STD dışında
+    # 651 SİYAH, 543 TEN, 525 PEMBE, ...), sabit değildi. variant_id: field_mapping'te wired
+    # DEĞİL ama raw_html_extraction.variant_join_key olarak tanımlıydı (join anahtarı, tablo
+    # kurulduktan sonra bu rolü etkilemez, --full-refresh'te yine üretilir).
+    kullanici_ek_karar_2026_08_05:
+      - collections
+      - variant.option1
+      - variant_id
+
+  keep:
+  - path: diff_day_create
+    analysis: "%100 dolu, 748 farklı değer (ondalıklı gün sayısı) - crawl anına göre RELATİF, ürünün oluşturulmasından bu yana geçen gün sayısı."
+    reason: "Tabloda MUTLAK bir 'created_at' karşılığı yok - Gratis/Rossmann'ın created_at kararıyla aynı amaca hizmet eden TEK sinyal, 'yeni ürün' analizinde işe yarayabilir."
+  - path: diff_day_publish
+    analysis: "%100 dolu, 1132 farklı değer - published_at ile aynı olayı (yayına alma) RELATİF gün sayısı olarak anlatıyor, kısmen örtüşüyor ama farklı format."
+    reason: "published_at (mutlak) zaten saklanıyor, bu relatif hali de düşük maliyetli - siteye zaten hazır geldiği için silinmesine gerek yok."
+  - path: published_at
+    analysis: "%100 dolu, 4877 farklı değer - ürünün yayına alındığı MUTLAK zaman damgası."
+    reason: "Gratis/Rossmann'ın created_at kararıyla tutarlı - gerçek/değişken tarih verisi."
+  use:
+  - path: _category_folder
+    analysis: "MinIO obje yolundan türetilen crawl-zamanı meta veri, %100 dolu, 9 farklı değer (main_categories sayısı)."
+    reason: "Provenance - hangi kategoriden geldiği izlenebilir kalmalı."
+  - path: _fetch_date
+    analysis: "Crawl tarihi, %100 dolu."
+    reason: "Fiyat geçmişinin can damarı - dedupe ve tarih partition'ı bu alana dayanıyor."
+  - path: _row_id
+    analysis: "Ham tablodaki satır kimliği, %100 dolu, benzersiz."
+    reason: "Silver dedupe'ında deterministik sıralama anahtarı."
+  - path: _source_object
+    analysis: "MinIO obje adı, %100 dolu."
+    reason: "Provenance - hangi arşiv dosyasından geldiği izlenebilir kalmalı."
+  - path: product_id
+    target: id
+    analysis: "product_id_field zaten bu."
+    reason: "Ürün kimliği - ürünler tek-varyantlı olduğu için variant_id ile pratikte 1:1."
+  - path: variant.sku
+    target: source_sku
+    analysis: "22 haneli sıfır dolgulu Eveshop'a özel iç kod."
+    reason: "Site içi SKU."
+  - path: variant.barcode
+    target: ean
+    analysis: "%100 dolu, Watsons'ın aksine TEK/temiz değer ama uzunluk karışık (13/8/12 hane)."
+    reason: "Barkod."
+  - path: title
+    target: name
+    analysis: "%100 dolu, CSV ile %100 eşleşti. UYARI: 509 satırda HTML entity kaçışı var (örn. &#39;)."
+    reason: "Ürün adı."
+  - path: brand
+    target: brand
+    analysis: "%100 dolu (7219/7219) - analytics_regex ile çekiliyor, gerçekçi marka dağılımı."
+    reason: "Marka adı."
+  - path: product_url
+    target: url
+    analysis: "'/products/{slug}-{id}' formatında tam yol, base_url ile birleştiriliyor, canlı doğrulandı."
+    reason: "Ürün sayfası URL'i."
+  - path: image_url
+    target: image_url
+    analysis: "%100 dolu (7219/7219), analytics_regex'ten geliyor - canlı HEAD ile doğrulandı (200, image/webp)."
+    reason: "Ürün görseli."
+  - path: price
+    target: list_price_try + sale_price_try
+    analysis: "Kuruş cinsinden, CSV ile %100 eşleşti + 2 canlı sepet testinde doğrulandı."
+    reason: "Referans fiyat - Rossmann gibi koşulsuz indirim katmanı yok, normal müşteri her zaman bunu öder."
+  - path: eve_price
+    target: conditional_promo_price_try
+    analysis: "'EVE KART+'A ÖZEL' fiyatı - Rossmann'ın conditional_promo_price_try'ı gibi GERÇEKTEN koşullu, 2 canlı sepet testinde doğrulandı."
+    reason: "Koşullu kart fiyatı."
+  - path: available
+    target: is_in_stock
+    analysis: "Boolean, kullanıcının canlı testlerinde tutarlı bulundu (stokta olmayan üründe sepete eklenemedi)."
+    reason: "Stok bayrağı."
+  - path: qty
+    target: stock_qty
+    analysis: "CSV ile %93.1 eşleşti, kalan fark doğal stok dalgalanması."
+    reason: "Stok adedi."
+  - path: category_hierarchy
+    target: category_path
+    analysis: "%100 dolu (7219/7219), 'Eve Genel Hiyerarşi > ' kökü regex ile kırpılıyor."
+    reason: "Kategori hiyerarşisi - analytics_regex'ten geliyor, önceden ayrı bir istek gerektiği düşünülüyordu, YANLIŞTI."

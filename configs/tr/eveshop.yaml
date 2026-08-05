@@ -52,6 +52,14 @@ rate_limit:
   delay_seconds: 1.5
   max_retries: 3
   retry_backoff_seconds: 2.0
+  # DENEY SONUCU (2026-08-05): 9 kategoriye eşzamanlı istek (max_concurrent_categories: 9)
+  # denendi, core/fetchers/category_fetcher.py -> fetch_site_categories bunu destekliyor.
+  # SONUÇ: BAŞARISIZ - Cloudflare WAF saniyeler içinde 429 (Too Many Requests) ile bloke etti,
+  # her kategori 2-3 sayfada kesildi. Eveshop'un tam site taraması ~19dk (444 sayfa, tamamen
+  # sıralı, delay_seconds=1.5sn) HÂLÂ tek güvenli/doğrulanmış yöntem - bilerek DÜŞÜK
+  # eşzamanlılık (>1) denenmedi burada bırakılmadı, config anahtarı yine de MEVCUT
+  # (core/fetchers/category_fetcher.py'de) ama varsayılan olmadığı için hiçbir sitede aktif
+  # değil. Daha düşük bir değer (örn. 2-3) denenmeden bu satır tekrar eklenmemeli.
 
 # main_categories - kullanıcı tarafından siteye bakılarak doğrulandı (2026-07-30, nav menüsündeki
 # gerçek ana kategoriler - önceki İLK GEÇİŞ heuristik 16'lı liste, nav'da olmayan tahmini
