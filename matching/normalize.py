@@ -213,8 +213,9 @@ SELECT
     -- "Vücut Sütü 400 ml" vs "Nivea Vücut Sütü 400 ml". Bu fark ölçüldüğünde isim
     -- benzerliğini sistematik olarak bozuyordu: EAN ile eşleştiği KESİN olan çiftlerde
     -- jaro-winkler <0.60 olan 1511 çift vardı, marka eklendiğinde 70'e düştü (Eveshop
-    -- içeren çiftlerde 1480 -> 40, ortalama benzerlik 0.71 -> 0.87). fuzzy_match.py bu
-    -- kolonu kullanmalı, name_normalized'ı değil - aksi halde Eveshop haksız yere elenir.
+    -- içeren çiftlerde 1480 -> 40, ortalama benzerlik 0.71 -> 0.87). İleride siteler arası
+    -- eşleştirme yeniden ele alınırsa bu kolon kullanılmalı, name_normalized değil -
+    -- aksi halde Eveshop haksız yere elenir.
     CASE
         WHEN tr_normalize_key(m.brand) IS NULL THEN tr_normalize_key(m.name)
         WHEN tr_normalize_key(m.name) IS NULL THEN tr_normalize_key(m.brand)

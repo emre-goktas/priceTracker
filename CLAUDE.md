@@ -2,7 +2,7 @@
 
 ## Proje Özeti
 
-Türk e-ticaret kozmetik sitelerinden (Gratis, Rossmann, Watsons, Eveshop) fiyat verisi toplayan, ürünleri EAN/GTIN + fuzzy matching ile eşleştiren, kendi kendini onarabilen (self-healing) bir fiyat takip sistemi. Uzun vadeli hedef: çoklu coğrafyaya (AB, ABD, Latin Amerika, Rusya, MENA) ve sosyal medya alert/publish katmanına genişlemek — ancak **şu anki geliştirme kapsamı sadece TR + bu 4 site + kozmetik kategorisi**. Genişleme, mimari bu 4 site ile uçtan uca stabil çalışana kadar başlamayacak.
+Türk e-ticaret kozmetik sitelerinden (Gratis, Rossmann, Watsons, Eveshop) fiyat verisi toplayan, kendi kendini onarabilen (self-healing) bir fiyat takip sistemi. Uzun vadeli hedef: çoklu coğrafyaya (AB, ABD, Latin Amerika, Rusya, MENA) ve sosyal medya alert/publish katmanına genişlemek — ancak **şu anki geliştirme kapsamı sadece TR + bu 4 site + kozmetik kategorisi**. Genişleme, mimari bu 4 site ile uçtan uca stabil çalışana kadar başlamayacak.
 
 Eveshop (2026-07-30), diğer 3'ü uçtan uca stabil olmadan eklendi — bilinçli bir istisna: Shopify altyapısı JSON API değil HTML kazıma gerektirdiği için mimarinin plugin sınırlarını (bkz. `core/parsers/html_parser.py`) erken test etmek amaçlandı. Yeni bir 5. site eklenmeden önce yine bu 4'ünün stabil çalıştığından emin olunmalı.
 
@@ -41,14 +41,10 @@ price-bot/
 │   ├── storage.py                # MinIO client wrapper
 │   └── db.py                     # Postgres bağlantı
 │
-├── matching/                    # DuckDB — ürün eşleştirme (ELT)
-│   ├── duckdb_pipeline.py
-│   ├── normalize.py              # isim temizleme, ml/gr birim standardizasyonu
-│   ├── ean_match.py              # GTIN/EAN tam eşleşme (öncelikli yol)
-│   ├── fuzzy_match.py            # EAN yoksa fallback (Levenshtein/Jaro-Winkler)
-│   ├── sanity_checks.py          # aynı EAN'de anormal fiyat farkı tespiti
-│   ├── review_queue.py           # düşük confidence eşleşmeler -> manuel onay
-│   └── load_to_postgres.py       # canonical_products / product_matches nihai yazım
+├── matching/                    # DuckDB — bronze->silver ELT (eşleştirme YOK, bkz. Kapsam Dışı)
+│   ├── duckdb_pipeline.py        # raw_{site} landing (MinIO -> DuckDB, incremental)
+│   ├── normalize.py              # isim/birim normalizasyonu, clean_{site} -> silver_products
+│   └── analysis/                 # site başına column decisions.yaml + build_clean.py (raw -> clean)
 │
 ├── selfheal/                    # AYRI modül — LLM tabanlı config onarımı
 │   ├── failure_detector.py       # HTTP status / boş response / şema sapması tespiti
@@ -111,19 +107,6 @@ Kurallar:
 
 ---
 
-## Ürün Eşleştirme Mantığı (matching/)
-
-Öncelik sırası:
-1. **EAN/GTIN tam eşleşme** — varsa direkt `canonical_product_id` ata (confidence: 100)
-2. **EAN yoksa** → fuzzy matching fallback: marka+isim normalize (lowercase, ml/gr birim standardize, varyant/ton ayrımı dikkat) + similarity skor
-3. Skor eşik altındaysa → `review_queue`'ya düş, otomatik onaylama
-
-Sanity check: Aynı EAN'e sahip ürünler arası fiyat 5-10x fark gösteriyorsa → EAN hatası şüphesi, otomatik onaylama, review_queue'ya düşür.
-
-Kozmetikte ton/renk varyantı = ayrı SKU mu, ürün ailesi mi sorusu her kategori/marka için tutarlı karar verilmeli, şema sonradan değiştirilmemeli.
-
----
-
 ## Self-Healing Akışı (selfheal/)
 
 ```
@@ -171,7 +154,7 @@ Site bazlı paralellik + modüller arası bağımsızlık:
 dags/
   crawler_dag.py     # robots -> sitemap -> sync (her site ayrı task, biri fail olursa diğerleri etkilenmez)
   fetch_dag.py         # category_fetch -> product_fetch -> raw_store (site bazlı paralel branch)
-  matching_dag.py      # duckdb transform -> canonical load
+  matching_dag.py      # duckdb transform (raw -> clean -> silver)
   selfheal_dag.py       # ayrı, failure_detector tetiklendiğinde çalışan bağımsız DAG
 ```
 
@@ -181,7 +164,8 @@ Pool kullan (`llm_diagnosis_pool`, slot=2-3) — LLM çağrılarının eş zaman
 
 ## Şu An Kapsam Dışı (İleride, Şimdi Değil)
 
-- `content/` (alert_engine, Veo görsel üretimi, publishers: Telegram/Instagram/Twitter) — `matching/` çıktısı stabilleşmeden başlanmayacak
+- Siteler arası ürün eşleştirme (`canonical_products`/`product_matches`, EAN + fuzzy matching, review queue) — 2026-08-07 itibariyle bilinçli olarak kapsam dışı. Sistem sunucuda 1-2 hafta stabil çalıştıktan sonra yeniden ele alınacak. `matching/` şu an sadece bronze->silver ELT'yi kapsıyor, siteler arası eşleştirme yok.
+- `content/` (alert_engine, Veo görsel üretimi, publishers: Telegram/Instagram/Twitter) — ürün eşleştirme kapsam dışı kaldığı sürece bu da başlamayacak
 - Çoklu coğrafya (`configs/eu/`, `configs/us/`, vs.) — sadece 3 TR sitesi uçtan uca stabil çalıştıktan sonra
 - DuckDB dışında ek analitik katman — Postgres veri hacmi gerçekten sorun yaratmadan eklenmeyecek
 
