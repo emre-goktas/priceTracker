@@ -15,20 +15,21 @@ from shared.text import clean_text, normalize_key, parse_size
 # değişmez (bkz. CLAUDE.md "plugin mimarisi" ilkesi). field_mapping'teki "strategy" alanı
 # yorumlanır (direct_path/computed/static/none), hiçbir strategy site'a özel davranmaz.
 #
-# Kaynak tablo raw_{site} (GEÇİCİ - bkz. not): tüm sütunları (liste/struct dahil) koruyan
-# tek katman odur ve bazı field_mapping formülleri buna ihtiyaç duyar (örn. Watsons'ın
-# otherPrices struct-list erişimi, Gratis'in attributes.categories liste alanı).
+# Kaynak tablo clean_{site} (DÜZELTME 2026-08-07: eskiden raw_{site}'tı, bkz. aşağıdaki tarihsel
+# not) - matching/analysis/build_clean.py tarafından decisions.yaml'ın keep+use kovalarından
+# üretilir, gerçek bir denetimden geçmiş kolon seti + dedup içerir. Bazı field_mapping
+# formülleri hâlâ liste/struct erişimi gerektirir (örn. Watsons'ın otherPrices'ı, Gratis'in
+# attributes.categories'i) - bunlar clean_{site}'a da AYNEN (isim/tip değişmeden) taşınıyor,
+# sadece "kullanılmayan" kolonlar clean_{site}'ta yok.
 #
-# NOT (2026-08-03): hedef mimari raw_{site} -> clean_{site} -> silver_products'tır.
-# clean_{site} şu an YOK (her site kendi içinde denetlenip kurulacak, bkz. matching/analysis/)
-# - o iş bitene kadar bu modül GEÇİCİ olarak doğrudan raw_{site}'tan okur. clean_{site}
-# hazır olduğunda build_site_select buradan değil clean_{site}'tan okuyacak şekilde
-# güncellenecek; CANONICAL_FIELDS/normalizasyon mantığı (name/brand temizliği, fiyat
-# NULL kuralı, name_full_normalized) aynı kalacak, sadece kaynak tablo değişecek.
-# Eskiden burada "clean_{site}" adında bir VIEW oluşturuluyordu (2026-08-02 tarihli bir
-# ara sürümde) - bu, gerçek/denetlenmiş clean katmanıyla AYNI İSMİ taşıyan ama hiçbir
-# denetim içermeyen (sadece bu SELECT'i saran) bir view'dı, isim çakışması yaratıyordu.
-# Kaldırıldı - clean_{site} adı SADECE gerçek denetlenmiş tablo için ayrılmıştır.
+# TARİHSEL NOT (2026-08-03, artık geçersiz): "hedef mimari raw_{site} -> clean_{site} ->
+# silver_products'tır, clean_{site} şu an YOK, bu modül GEÇİCİ olarak raw_{site}'tan okuyor"
+# yazıyordu - 2026-08-07'de 4 sitenin de clean_{site}'ı decisions.yaml denetiminden geçip
+# hazır olduğu için bu modül clean_{site}'a geçirildi. Bu geçiş aynı zamanda Eveshop'un HTML-
+# supplement JOIN'ini (bkz. matching/eveshop_html_supplement.py, matching/analysis/
+# build_clean.py -> SUPPLEMENT_JOINS) silver_products'a ulaştırmak için GEREKLİ hale geldi -
+# o JOIN'in ürettiği ean_html/eve_price_html/qty_html kolonları SADECE clean_eveshop'ta var,
+# raw_eveshop'ta yok.
 
 DB_PATH = Path(__file__).resolve().parent / "pricebot.duckdb"
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs" / "tr"
@@ -127,7 +128,8 @@ def _field_expr(spec: dict) -> str:
 
 
 def build_site_select(site: str, config: dict) -> str:
-    """Bir sitenin raw_ tablosundan kanonik alanları çıkaran SELECT'i üretir.
+    """Bir sitenin clean_ tablosundan kanonik alanları çıkaran SELECT'i üretir (DÜZELTME
+    2026-08-07: eskiden raw_, bkz. modül başı notu).
 
     Dedupe (ürün, TARİH) ikilisinde yapılır - sadece (ürün) değil. Bu, fiyat takibinin can
     damarı: eskiden PARTITION BY sadece ürün id'siydi ve ORDER BY _fetch_date DESC ile HER
@@ -136,7 +138,10 @@ def build_site_select(site: str, config: dict) -> str:
     tekrarları yine temizlenir ama günler arası geçmiş korunur.
 
     Aynı gün içindeki eşitliklerde _row_id ile deterministik seçim yapılır (arşiv okuma
-    sırasındaki ilk kayıt) - böylece aynı veriyle iki çalıştırma aynı sonucu verir.
+    sırasındaki ilk kayıt) - böylece aynı veriyle iki çalıştırma aynı sonucu verir. clean_{site}
+    zaten AYNI (dedupe_key, _fetch_date) sözleşmesiyle build_clean.py'de dedup edilmiş oluyor -
+    buradaki QUALIFY bu yüzden çoğu zaman no-op, ama elle değiştirilmiş/bayat bir clean_{site}
+    tablosuna karşı savunma amaçlı bilerek korunuyor.
     """
     field_mapping = config["field_mapping"]
     id_field_spec = field_mapping.get("id")
@@ -160,7 +165,7 @@ SELECT
     _fetch_date AS fetch_date,
     {joined_fields}
 FROM (
-    SELECT * FROM raw_{site}
+    SELECT * FROM clean_{site}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY {dedupe_key}, _fetch_date ORDER BY _row_id) = 1
 )
 """

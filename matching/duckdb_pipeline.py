@@ -260,11 +260,17 @@ def parse_html_embedded_json(html: str, extraction_cfg: dict, extract_regex: str
     return merged
 
 
-def collect_rows(site: str, object_names: list[str]) -> list[dict]:
+def collect_rows(site: str, object_names: list[str], config: dict | None = None) -> list[dict]:
     """Bir sitenin verilen arşiv objelerinden düzleştirilmiş ürün satırlarını toplar.
 
-    JSON mu HTML mi olduğu config'ten (`response.format`) belirlenir - site adına bakılmaz."""
-    config = load_site_config(site)
+    JSON mu HTML mi olduğu config'ten (`response.format`) belirlenir - site adına bakılmaz.
+
+    config verilmezse configs/tr/{site}.yaml'daki AKTİF config okunur (normal akış). Verilirse
+    (örn. matching/eveshop_html_supplement.py'nin dormant "_html_barkod_icin_gelecek" bloklarını
+    birleştirdiği override) o kullanılır - siteye özel bir dal DEĞİL, herhangi bir site aynı
+    şekilde alternatif bir arşiv kaynağını (farklı format/response şekli) bu parametreyle
+    işleyebilir."""
+    config = config or load_site_config(site)
     response_cfg = config["category_search_api"]["response"]
     fmt = response_cfg.get("format", "json")
     drop_prefixes = _drop_prefixes(config)
@@ -445,23 +451,39 @@ def _record_ingested(con: duckdb.DuckDBPyConnection, site: str, object_names: li
 # build_site_select'te uygulanıyor.
 
 
-def load_site(con: duckdb.DuckDBPyConnection, site: str, full_refresh: bool = False) -> int:
+def load_site(
+    con: duckdb.DuckDBPyConnection,
+    site: str,
+    full_refresh: bool = False,
+    config_override: dict | None = None,
+    raw_table_override: str | None = None,
+    tracking_key_override: str | None = None,
+) -> int:
     """Bir sitenin arşivini DuckDB'ye indirir (varsayılan: inkremental).
 
     İnkremental modda sadece daha önce işlenmemiş MinIO objeleri okunur. Eskiden her
     çalıştırma tüm tarihçeyi baştan indiriyordu - günlük crawl'da bu, arşiv büyüdükçe
     doğrusal olarak artan ve tamamen gereksiz bir yük demekti.
+
+    3 opsiyonel override, hepsi None ise davranış TAMAMEN eskisi gibi (config diskten okunur,
+    hedef tablo raw_{site}, ingest-log takibi site adıyla). Siteye özel bir dal DEĞİL - herhangi
+    bir sitenin AYNI MinIO prefix'inden (category/{site}/) farklı bir arşiv formatını/config'ini
+    AYRI bir tabloya indirmesi gerektiğinde kullanılır (örn. Eveshop'un products.json birincil +
+    ara sıra HTML barkod-tazeleme kaynağı - bkz. matching/eveshop_html_supplement.py). Ayrı
+    tracking_key şart: aynı 'site' anahtarını paylaşmak, bir kaynağın --full-refresh'i diğer
+    kaynağın ingest-log kaydını da silerdi (INGEST_LOG_TABLE 'site' bazlı, tabloya göre değil).
     """
-    config = load_site_config(site)
+    config = config_override or load_site_config(site)
     extension = archive_extension(config)
     all_objects = _list_archive_objects(site, extension)
     if not all_objects:
         logger.warning(f"{site}: arşivde hiç obje yok")
         return 0
 
-    raw_table = f"raw_{site}"
+    raw_table = raw_table_override or f"raw_{site}"
+    tracking_key = tracking_key_override or site
     incremental = not full_refresh and _table_exists(con, raw_table)
-    seen = _already_ingested(con, site) if incremental else set()
+    seen = _already_ingested(con, tracking_key) if incremental else set()
     pending = [name for name in all_objects if name not in seen]
 
     if incremental and not pending:
@@ -472,7 +494,7 @@ def load_site(con: duckdb.DuckDBPyConnection, site: str, full_refresh: bool = Fa
         f"{site}: {len(pending)}/{len(all_objects)} obje okunacak "
         f"({'inkremental' if incremental else 'tam yenileme'})"
     )
-    rows = collect_rows(site, pending)
+    rows = collect_rows(site, pending, config=config)
     if not rows:
         logger.warning(f"{site}: okunan objelerden hiç satır çıkmadı")
         return 0
@@ -484,12 +506,15 @@ def load_site(con: duckdb.DuckDBPyConnection, site: str, full_refresh: bool = Fa
         offset = con.execute(f"SELECT COALESCE(MAX(_row_id), -1) + 1 FROM {raw_table}").fetchone()[0]
         main_rows = [{**row, "_row_id": row["_row_id"] + offset} for row in main_rows]
         if not _append_jsonl(con, raw_table, main_rows):
-            return load_site(con, site, full_refresh=True)
+            return load_site(
+                con, site, full_refresh=True, config_override=config_override,
+                raw_table_override=raw_table_override, tracking_key_override=tracking_key_override,
+            )
     else:
-        con.execute(f"DELETE FROM {INGEST_LOG_TABLE} WHERE site = ?", [site])
+        con.execute(f"DELETE FROM {INGEST_LOG_TABLE} WHERE site = ?", [tracking_key])
         _load_jsonl(con, raw_table, main_rows)
 
-    _record_ingested(con, site, pending)
+    _record_ingested(con, tracking_key, pending)
 
     count = con.execute(f"SELECT COUNT(*) FROM {raw_table}").fetchone()[0]
     col_count = len(con.execute(f"DESCRIBE {raw_table}").fetchall())

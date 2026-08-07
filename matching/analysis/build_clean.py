@@ -39,9 +39,29 @@ VALUE_CLEAN_OVERRIDES = {
     },
 }
 
+# Ayrı bir arşiv/kadanstan (occasional refresh) beslenen küçük bir lookup tablosunu clean_{site}
+# kurulurken LEFT JOIN ile ekleyen, nadir istisna (bkz. matching/eveshop_html_supplement.py -
+# aynı gerekçeyle site adı burada geçiyor, VALUE_CLEAN_OVERRIDES gibi). Lookup tablo henüz
+# oluşturulmamışsa (script hiç çalıştırılmadıysa) sessizce atlanır - clean_{site} yine kurulur,
+# sadece supplement kolonları hep NULL kalır.
+SUPPLEMENT_JOINS = {
+    "eveshop": {
+        "table": "eveshop_html_supplement",
+        "raw_key": "id",
+        "supplement_key": "product_id",
+        "add_sql": ["s.ean_html", "s.eve_price_html", "s.qty_html", "s.html_fetch_date"],
+    },
+}
+
 
 def _quote(col: str) -> str:
     return '"' + col.replace('"', '""') + '"'
+
+
+def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
+    return con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [table]
+    ).fetchone()[0] > 0
 
 
 def discover_sites() -> list[str]:
@@ -69,7 +89,18 @@ def build_clean(con: duckdb.DuckDBPyConnection, site: str) -> None:
         if dropped in columns:
             columns.remove(dropped)
 
-    select_list = ",\n    ".join([_quote(c) for c in columns] + override.get("add_sql", []))
+    add_sql = list(override.get("add_sql", []))
+
+    join_sql = ""
+    supplement = SUPPLEMENT_JOINS.get(site)
+    if supplement and _table_exists(con, supplement["table"]):
+        add_sql += supplement["add_sql"]
+        join_sql = (
+            f"LEFT JOIN {supplement['table']} s "
+            f"ON r.{_quote(supplement['raw_key'])} = s.{_quote(supplement['supplement_key'])}"
+        )
+
+    select_list = ",\n    ".join([f"r.{_quote(c)}" for c in columns] + add_sql)
 
     raw_total = con.execute(f"SELECT COUNT(*) FROM raw_{site}").fetchone()[0]
 
@@ -80,7 +111,8 @@ def build_clean(con: duckdb.DuckDBPyConnection, site: str) -> None:
         FROM (
             SELECT * FROM raw_{site}
             QUALIFY ROW_NUMBER() OVER (PARTITION BY {_quote(dedupe_key)}, _fetch_date ORDER BY _row_id) = 1
-        )
+        ) r
+        {join_sql}
     """)
 
     clean_total = con.execute(f"SELECT COUNT(*) FROM clean_{site}").fetchone()[0]
