@@ -1,28 +1,14 @@
-# Rossmann fetch-özel config. Kapsam: sitenin TAMAMI (kategori filtresi yok).
-# Doğrulandı: curl_cffi (impersonate=chrome120) ile 200 OK, tek istekte EAN+fiyat+stok geliyor.
-# Regex/kategori ID gibi kırılgan bilgiler burada (YAML) yaşar, core/parsers/site_plugins/rossmann.py
-# içine literal olarak gömülmez — self-heal sadece bu dosyayı güncelleyebildiği için (bkz. CLAUDE.md).
-
 base_headers:
   Accept: "*/*"
   Accept-Language: "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
   Referer: "https://www.rossmann.com.tr/"
   X-Requested-With: "XMLHttpRequest"
 
-# Sayfalar/kategoriler arası bekleme + retry — hardcode değil, buradan okunur (bkz.
-# core/parsers/base_parser.py).
 rate_limit:
   delay_seconds: 1.5
   max_retries: 3
   retry_backoff_seconds: 2.0
 
-# Ana kategori ID'leri artık statik (main_categories) — bunlar veritabanı/API key'i, kolay
-# kolay değişmez. Ampirik olarak doğrulandı (2026-07-29): bu 7 kategorinin toplamı (~8839,
-# çakışma üst sınırı) kategori filtresi olmadan bulunan tüm katalog sayısıyla (~8786) pratik
-# olarak birebir örtüşüyor — yani eksiksiz kapsama. "Saç Bakım"/"Erkek Bakım" gibi navbar'da
-# göze çarpan bazı öğeler yapısal olarak kisisel-bakim'in (id=4) ÇOCUĞU, ayrı kök değil; parent
-# ID'yle sorgulamak zaten tüm alt-ağacın ürünlerini kapsıyor (anchor-category davranışı) —
-# bu yüzden tek tek alt kategori taramaya gerek yok.
 main_categories:
   - {id: "3", name: "Makyaj"}
   - {id: "4", name: "Kişisel Bakım"}
@@ -32,31 +18,16 @@ main_categories:
   - {id: "8", name: "Ev / Yaşam"}
   - {id: "49", name: "Cilt Bakımı"}
 
-# category_discovery aşağıda REFERANS olarak duruyor (her kök kategori sayfası kendi JS
-# state'inde `currentCategory: N` taşıyor — bu listenin nasıl türetildiğinin kaydı) ve normal
-# fetch akışında ÇALIŞTIRILMAZ; selfheal katmanında kategori drift kontrolü için değerlendirilecek.
 category_discovery:
   strategy: category_page_scrape
   root_slug_source:
     from: sitemap_urls
     exclude_patterns: ["-p-", "cdn.rossmann"]
     group_by: "parent_segment_of_nested_path"
-    min_child_paths: 10   # doğrulandı: gerçek kökler 15-87 alt-path, kampanya sayfaları hep 0-1
+    min_child_paths: 10
   extraction:
     own_id_regex: "currentCategory:\\s*([0-9]+)"
     children_json_key: "childPathsMapping"
-    # childPathsMapping örneği: {"1/2/4/50": {"entity_id":"50","name":"Ağız ve Diş Bakım"}, ...}
-  # Doğrulandı (2026-07-28), navbar isimleriyle sıra dahil birebir eşleşti:
-  #   kisisel-bakim id=4  -> 50 Ağız ve Diş Bakım, 178 Banyo Ürünleri, 51 Parfüm & Deodorant,
-  #                          52 Saç Bakım, 56 Kadın Bakım Ürünleri, 57 Epilasyon/Ağda/Tıraş,
-  #                          58 Ayak Bakımı, 53 Erkek Bakım
-  #   temizlik id=7       -> 188 Genel Temizlik, 156 Çamaşır, 157 Bulaşık, 158 Fırın, 160 Banyo,
-  #                          159 Mutfak Temizlik Malzemeleri, 162 Temizlik Malzemeleri, 163 Kokular
-  #   makyaj id=3         -> 9 Dudak, 10 Göz-Kaş, 11 Yüz, 12 Tırnak, 13 Makyaj Aksesuarları,
-  #                          14 Doğal Makyaj Ürünleri
-  #   diğer kök slug'lar (cilt-bakimi, ev-yasam, anne-bebek, saglik-gida) aynı yöntemle işlenir.
-  # NOT: "Saç Bakım"/"Erkek Bakım" navbar'da göze çarpsa da yapısal olarak kisisel-bakim'in
-  # ÇOCUĞU (id=4 altında) — ayrı kök kategori değiller, bu kasıtlı bir tasarım, eksiklik değil.
 
 category_search_api:
   method: GET
@@ -70,62 +41,18 @@ category_search_api:
   pagination:
     offset_param: from
     limit_param: size
-    page_size: 60   # eski rossmann_batch.py'de 60 max limit notu vardı; 12 ve 60 ikisi de 200 döndü
+    page_size: 60
   response:
     format: json
     total_count_path: "product.hits.total.value"
     items_path: "product.hits.hits"
-    # her hit, gerçek ürün verisi hit._source altında sarmalanmış.
 
-# matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
-# alanda. Rossmann'da bu, gerçek çoklu-kategori üyeliğinden geliyor - sayfalama hatası değil.
 product_id_field: "_source.id"
 
-# Ham veriye HİÇ alınmayacak alan önekleri (bkz. matching/duckdb_pipeline.py -> _drop_prefixes).
-# cat_pos_* = Magento'nun ürünün HER üye olduğu kategori listesinde kaçıncı sırada göründüğünü
-# tutan iç sıralama alanı (örn. cat_pos_1837=42). Ürün başına 100+ tane var (doğrulandı:
-# 1.089.357 satır, ürün başına ortalama ~107) - fiyat takibiyle hiçbir ilgisi yok, hiçbir kod
-# tarafından okunmuyordu (2026-08-03 denetiminde doğrulandı: sıfır gerçek kullanım). Eskiden
-# ayrı bir child tabloya (raw_rossmann_source_cat_pos) taşınıyordu - kullanıcının kararıyla
-# (2026-08-03) artık hiç arşivlenmiyor, bu da _split_repeating_groups mekanizmasını tamamen
-# gereksiz kıldı (kaldırıldı, bkz. matching/duckdb_pipeline.py) - 4 sitenin hiçbirinde artık
-# >=10 üyeli tekrarlı alan ailesi kalmadı.
 raw_columns:
   drop_prefixes:
     - "_source.cat_pos_"
 
-# field_mapping — 2026-08-02'de yazıldı. Kullanıcının elindeki bağımsız kaynaklar (tek ürünlük
-# örnek JSON, "explanation" alanlarıyla annotate edilmiş + 364 satırlık CSV) SADECE başlangıç
-# örneklemesi/kroki olarak kullanıldı, Gemini'nin doc1/02/03'teki iddiaları da dahil hiçbir
-# şeye doğrudan güvenilmedi (bkz. feedback_verify_ai_reports.md) - her satır ya raw_rossmann'daki
-# gerçek veriyle (N=364 CSV karşılaştırması) ya da kullanıcının CANLI sitede/sepette yaptığı
-# testlerle çapraz kontrol edildi.
-#
-# BÜYÜK ÖLÇEKLİ CSV DOĞRULAMASI (364 ürün, kullanıcının bağımsız/eski kaydı, raw_rossmann'ın
-# 2026-08-01 snapshot'ıyla programatik karşılaştırıldı):
-#   barcode: 359/359 (%100) BİREBİR  |  name: 359/359 (%100) BİREBİR
-#   price: 358/359 (%99.7)  |  special_price: 358/359 (%99.7)  |  is_in_stock: 350/359 (%97.5)
-#   crm_price: 270/359 (%75.2, kalan fark zamanlama - CSV daha eski bir tarihten, kampanya
-#   değişken - Watsons'taki otherPrices'la aynı doğa)
-#   qty: 119/359 (%33.1) ve sold: 14/359 (%3.9) - DÜŞÜK ama SORUN DEĞİL, bunlar doğası gereği
-#   sürekli değişen canlı sayaçlar (stok satıldıkça azalır, sold hep artar), aynı anda alınmayan
-#   2 snapshot'ta eşleşmeleri zaten beklenmez.
-#
-# EN ÖNEMLİ BULGU - crm_price ("Rossmann Card Fiyatı") GERÇEKTEN KOŞULLU, Watsons'ın
-# otherPrices/MEMBER'ından FARKLI (2026-08-02, kullanıcı canlı sepet testi):
-#   Ürün: SR12062947, price=179, crm_price=159. Sayfada İKİ fiyat da gösteriliyor (179,00 TL +
-#   "Rossmann Card ile 159,00") - Watsons gibi PUBLIC görünür. AMA sepete eklenince "Ara Toplam:
-#   179,00 TL" çıktı + banner: "Rossmann Card üyesi olmanız halinde toplam indirim tutarı: 20.00
-#   TL" - yani indirim GERÇEKTEN karta/üyeliğe koşullu, giriş yapmadan/kart olmadan
-#   UYGULANMIYOR. Watsons'ta member fiyatı login GEREKTİRMEDEN gerçekten ödenen fiyattı (3
-#   checkout testinde doğrulanmıştı) - Rossmann'da AYNI VARSAYIMI yapıp crm_price'ı
-#   sale_price_try'a coalesce etmek YANLIŞ olurdu, bu yüzden Gratis'in conditional_promo_price_try
-#   deseni kullanıldı (ayrı alan, sale_price_try'a KARIŞTIRILMADI).
-#
-# confidence seviyeleri (Gratis/Watsons'la aynı sözleşme):
-#   verified_checkout   -> gerçek sepete eklenip/checkout'a gidilip doğrulandı
-#   verified_data       -> raw_rossmann'daki gerçek veriyle (N=364 CSV dahil) doğrulandı
-#   plausible_unverified -> mantıklı ama canlı sitede bizzat çapraz kontrol edilemedi
 field_mapping:
   id: {strategy: direct_path, path: "_source.id", confidence: verified_data, note: "product_id_field zaten bu, sayısal Magento entity ID"}
   source_sku: {strategy: direct_path, path: "_source.sku", confidence: verified_data, note: "N=364 CSV karşılaştırmasında dolaylı doğrulandı (sku ile lookup yapıldı, hepsi bulundu)"}
@@ -136,7 +63,6 @@ field_mapping:
   image_url: {strategy: computed, formula: "'https://www.rossmann.com.tr/media/catalog/product' || \"_source.image\"", confidence: verified_data, note: "GÖRECELİ path (örn. '/f/f/ff938d....jpeg') - base + '/media/catalog/product' + path programatik olarak denendi (HEAD isteği): 200 image/jpeg döndü, gerçek görsel doğrulandı (2026-08-02). Alternatif 'https://cdn.rossmann.com.tr/media/catalog/product' + path de 200 dönüyor (image/webp, optimize edilmiş sürüm) ama ana domain daha basit/garantili olduğu için o seçildi."}
   currency: {strategy: static, value: "TRY", confidence: verified_data, note: "Rossmann ham veride ayrı bir currency alanı yok, tüm fiyatlar zaten TL - Gratis/Watsons'tan farklı olarak sabit."}
 
-  # --- Fiyat: N=364 CSV doğrulaması + kullanıcının CANLI sepet testiyle netleşti ---
   list_price_try: {strategy: direct_path, path: "_source.price", confidence: verified_checkout, note: "CSV'nin 'Standart Fiyat'ıyla 358/359 (%99.7) eşleşti + sepette 'Ara Toplam' ile birebir (179,00 TL) doğrulandı. BIGINT (kuruş değil, tam TL)."}
   sale_price_try: {strategy: computed, formula: "CASE WHEN (CASE WHEN try_cast(\"_source.ross_60_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.ross_60_price\" AS DOUBLE) ELSE \"_source.special_price\" END) > 0 AND (CASE WHEN try_cast(\"_source.ross_60_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.ross_60_price\" AS DOUBLE) ELSE \"_source.special_price\" END) < \"_source.price\" THEN (CASE WHEN try_cast(\"_source.ross_60_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.ross_60_price\" AS DOUBLE) ELSE \"_source.special_price\" END) ELSE \"_source.price\" END", confidence: verified_checkout, note: "DÜZELTME (2026-08-02): önce burada sadece 'price' vardı - YANLIŞTI. Kullanıcının 'kart dışı farklı fiyatlama olabilir' şüphesi üzerine Rossmann'ın CANLI sayfasındaki JS kaynak kodu (Alpine.js store, 'price.specialPrice/hasSpecial/displayType' fonksiyonları) incelendi: ross_60_price (Gemini'nin 'kullanılmıyor' dediği alan) DOLU VE price'tan düşükse special_price'ın ÖNÜNE geçiyor, VE bu fiyat sayfada/sepette HİÇBİR rozet olmadan (ne 'Rossmann Card' ne başka bir koşul yazısı) doğrudan gösteriliyor - yani gerçekten koşulsuz. Canlı doğrulandı (ST25110099: price=554, ross_60_price=299, crm_price=0 - sayfada '554,00 TL' üstü çizili + '299,00 TL' kırmızı rozetsiz, sepette de 299,00 TL kesildi). N=8991 taranarak ölçüldü: ürünlerin %11.4'ünde (1023 satır) bu katman aktif ve price'tan farklı - önceki formül bunların hepsini YANLIŞ hesaplıyordu. DÜZELTME 2 (2026-08-02, aynı gün üçüncü tur): ST15010634 (Sea Color) için önce 'index bayat, gerçek sayfa 449 gösteriyor' diye YANLIŞ bir 'bilinen sınırlama' notu yazılmıştı - bu, doğrulama yöntemi olarak sayfanın GA4 'view_item' analytics event'ine (dataLayer) bakılarak çıkarılmıştı, ki bu YANLIŞ sinyal - o event her zaman referans/liste fiyatını (price) loglamış, GERÇEKTE EKRANDA GÖSTERİLEN fiyatı değil. Kullanıcı sayfanın gerçek ekran görüntüsünü paylaşınca netleşti: 449 TL üstü çizili + 225 TL kırmızı, rozetsiz, doğrudan 'Sepete Ekle' - tam formülün öngördüğü gibi. Yani index BAYAT DEĞİLDİ, formül HER ZAMAN doğruydu - hatalı olan benim doğrulama yöntemimdi (analytics JSON'a güvenip gerçek görsel/render edilen sayfaya bakmamak). DERS: bu sitede (ve muhtemelen genel olarak) GA4/dataLayer 'view_item' gibi analytics event'leri 'gerçekte gösterilen fiyat' için GÜVENİLİR DEĞİL - sadece gerçek ekran görüntüsü/sepet tutarı güvenilir kanıt sayılmalı."}
   conditional_promo_price_try: {strategy: computed, formula: "CASE WHEN try_cast(\"_source.crm_price\" AS DOUBLE) > 0 AND try_cast(\"_source.crm_price\" AS DOUBLE) < \"_source.price\" THEN try_cast(\"_source.crm_price\" AS DOUBLE) WHEN (CASE WHEN try_cast(\"_source.cmp_100_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_100_price\" AS DOUBLE) WHEN try_cast(\"_source.cmp_50_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_50_price\" AS DOUBLE) WHEN try_cast(\"_source.cmp_20_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_20_price\" AS DOUBLE) ELSE 0 END) > 0 AND (CASE WHEN try_cast(\"_source.cmp_100_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_100_price\" AS DOUBLE) WHEN try_cast(\"_source.cmp_50_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_50_price\" AS DOUBLE) WHEN try_cast(\"_source.cmp_20_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_20_price\" AS DOUBLE) ELSE 0 END) < \"_source.price\" THEN (CASE WHEN try_cast(\"_source.cmp_100_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_100_price\" AS DOUBLE) WHEN try_cast(\"_source.cmp_50_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_50_price\" AS DOUBLE) WHEN try_cast(\"_source.cmp_20_price\" AS DOUBLE) > 0 THEN try_cast(\"_source.cmp_20_price\" AS DOUBLE) ELSE 0 END) ELSE NULL END", confidence: verified_checkout, note: "'Rossmann Card Fiyatı' (crm_price) - Gratis'in conditional_promo_price_try'ı gibi KOŞULLU: sayfada herkese açık gösteriliyor (üstü çizili + 'Rossmann Card ile X TL') ama GERÇEKTEN Rossmann Card üyeliği/girişi gerektiriyor - kullanıcının canlı sepet testinde giriş yapmadan tam fiyat (179 TL) tahsil edildi. DÜZELTME (2026-08-02): Rossmann'ın kendi JS'inde crm_price'ın ALTINDA 2. bir koşullu katman daha var - cmp_100/50/20_price ('kasa önü kampanyası', sepet tutarı eşiğine bağlı, sayfada 'X TL üzeri alışverişe' rozetiyle gösteriliyor, Gratis'in 250 TL promosyonuna benzer). Öncelik crm_price'ın kendisiyle AYNI (crm varsa o kullanılır, yoksa cmp'ye bakılır - ikisi asla birlikte gösterilmiyor, sitenin kendi displayType() fonksiyonu böyle). N=8991'de crm %72.1 (6484), cmp SADECE crm yokken %0.8 (72) aktif. crm_price string '0.000000' ise indirim yok demek - NULL'a çevrildi."}

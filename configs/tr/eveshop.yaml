@@ -1,83 +1,17 @@
-# Eveshop fetch-özel config. Kapsam: sitenin TAMAMI (kategori filtresi yok).
-# Altyapı: Shopify (Gratis/Watsons/Rossmann'dan farklı - JSON API yok, HTML kazıma gerekiyor,
-# WAF/Cloudflare korumalı -> curl_cffi impersonate=chrome120 zorunlu, bkz. shared/http_client.py).
-#
-# ÖNEMLİ - product_fetcher.py bilerek KULLANILMIYOR (CLAUDE.md'de tanımlı dosya boş kalıyor):
-# Kategori sayfası HTML'inde ürün kartı başına 2 ayrı gömülü JSON bloğu var:
-#   1) x-labels-data attribute'u -> fiyat/kampanya (eve_price, price, product_id, variant_id)
-#   2) x-variants-data class'lı div içindeki <script type='application/json'> -> barkod, sku,
-#      variant id (x-labels-data.variant_id ile birebir eşleşiyor, doğrulandı: eveshop_test.html
-#      üzerinde 18/18 kart)
-# Yani kategori taraması TEK BAŞINA fiyat+barkod+sku'nun tamamını veriyor. Ayrıca canlı bir ürün
-# sayfası (/products/{handle}) çekilip doğrulandı: aynı yapı orada da var ama SADECE o ürünün
-# kendi varyantı için - ekstra bilgi getirmiyor. 3277 ürünlük gerçek örneklemde (raw_json/eveshop,
-# /products/{handle}.js çıktısı) TÜMÜ tam olarak 1 varyanta sahipti (0/3277 çok-varyantlı) - yani
-# Eveshop'ta ton/renk farkı ayrı ürün/handle olarak modelleniyor, Shopify'ın klasik "tek üründe
-# çoklu varyant" deseni yok. Bu yüzden "varyant tamamlama" için ayrı ürün HTML fetch'ine gerek
-# kalmıyor -> ~14.735 ürüne tek tek istek atıp WAF riski büyütmenin veri kazancı yok. Bu koşullar
-# değişirse (çok-varyantlı ürün keşfedilirse) product_fetcher.py burada devreye girer.
-#
-# NOT - DÜZELTME (2026-07-30, aynı gün içinde): Burada önceden "/products/{handle}.js
-# endpoint'inde (Kaynak C) barkod VE fiyat 0/3277, kullanılamaz" yazıyordu - bu, eski/statik bir
-# dosya örneklemine (raw_json/eveshop/, tarihi belirsiz bir önceki scrape) dayanıyordu. Aynı gün
-# içinde CANLI olarak yeniden test edildi: endpoint şeması değişmiş (product_type -> type gibi
-# alan adı farkları da var) ve şu anda barkod DA, fiyat DA dolu geliyor (6 farklı kategoriden
-# örnekle doğrulandı). Yani bu endpoint zaman içinde tutarsız/değişken davranmış olabilir -
-# "kullanılamaz" iddiası yanlıştı, düzeltildi.
-#
-# Yine de bu config Kaynak C'yi FİYAT/BARKOD için KULLANMIYOR (yukarıdaki gerekçe hâlâ geçerli:
-# kategori taraması zaten tek istekte hepsini veriyor, ekstra ~7367 istekle WAF riski büyütmenin
-# anlamı yok). Kaynak C'nin gerçek faydası başka bir alanda çıktı: `type` alanı temiz bir
-# kategori hiyerarşisi veriyor ("Eve Genel Hiyerarşi > RENKLİ KOZMETİK > GÖZ ÜRÜNLERİ" gibi) -
-# bu, configs/taxonomy/mappings/eveshop.yaml'ı inşa etmek için (Gratis'in attributes.categories'i
-# gibi) örnekleme amacıyla kullanıldı. Sürekli veri toplama akışının (bu dosyanın konusu) parçası
-# değil, bir defalık taksonomi keşfi içindi.
-
 base_headers:
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
   Accept-Language: "tr-TR,tr;q=0.9"
 
-# Diğer sitelerde yok (varsayılan: json/application-json, bkz. core/storage.py) - Eveshop ham
-# yanıtı HTML olduğu için MinIO'ya .html/text-html olarak arşivlenmeli, .json/application-json
-# yanıltıcı olurdu.
 archive:
-  extension: html
-  content_type: text/html
+  extension: json
+  content_type: application/json
 
-# Sayfalar/kategoriler arası bekleme + retry — hardcode değil, buradan okunur (bkz.
-# core/parsers/base_parser.py). Diğer sitelerle aynı temkinli varsayılanlar; Eveshop'a özel
-# bir WAF-blok gözlemi henüz yok (küçük ölçekli testte hiç 403 alınmadı) ama Cloudflare arkasında
-# olduğu bilindiği için ihtiyatlı başlanıyor.
 rate_limit:
   delay_seconds: 1.5
   max_retries: 3
   retry_backoff_seconds: 2.0
-  # DENEY SONUCU (2026-08-05): 9 kategoriye eşzamanlı istek (max_concurrent_categories: 9)
-  # denendi, core/fetchers/category_fetcher.py -> fetch_site_categories bunu destekliyor.
-  # SONUÇ: BAŞARISIZ - Cloudflare WAF saniyeler içinde 429 (Too Many Requests) ile bloke etti,
-  # her kategori 2-3 sayfada kesildi. Eveshop'un tam site taraması ~19dk (444 sayfa, tamamen
-  # sıralı, delay_seconds=1.5sn) HÂLÂ tek güvenli/doğrulanmış yöntem - bilerek DÜŞÜK
-  # eşzamanlılık (>1) denenmedi burada bırakılmadı, config anahtarı yine de MEVCUT
-  # (core/fetchers/category_fetcher.py'de) ama varsayılan olmadığı için hiçbir sitede aktif
-  # değil. Daha düşük bir değer (örn. 2-3) denenmeden bu satır tekrar eklenmemeli.
 
-# main_categories - kullanıcı tarafından siteye bakılarak doğrulandı (2026-07-30, nav menüsündeki
-# gerçek ana kategoriler - önceki İLK GEÇİŞ heuristik 16'lı liste, nav'da olmayan tahmini
-# slug'lar içeriyordu (gida-icecek, hijyen-urunleri, cinsel-saglik vb.) - yerine bu 9 geçti).
-# Her 9 URL de canlıda tek tek doğrulandı (2026-07-30): hepsi HTTP 200, sayfa 1'de 18 ürün.
-#
-# "cok-satan-urunler" (Çok Satan Ürünler) diğer 8'in aksine bir taksonomi dalı değil, kürate
-# edilmiş/algoritmik bir "best sellers" koleksiyonu - muhtemelen diğer 8 kategoriyle üründe
-# örtüşüyor (aynı ürün iki kategoriden de taranabilir). Bu veri kaybı yaratmaz (aynı ürün iki
-# kez arşivlenir, matching/normalize.py aşamasında content_hash/product_id ile dedupe edilir)
-# ama crawl hacmini bir miktar artırır - bilinçli kabul edildi, kullanıcı onayladı.
-#
-# TAM KAPSAM (bu 9 kategorinin toplamının sitemap'teki ~14735 ürünün tamamını kapsayıp
-# kapsamadığı) henüz ayrıca doğrulanmadı - Shopify collection'ları Rossmann/Watsons'taki gibi
-# anchor-category garantisi vermez (ayrı tag gruplarıdır, bir ürün hiçbir ana kategoriye
-# etiketlenmemiş olabilir). Gerekirse ileride crawl sonrası benzersiz product_id sayımıyla
-# kontrol edilip eksik kalan varsa leaf-level slug eklenir.
-main_categories:
+main_categories_html_barkod_icin_gelecek:
   - {id: "makyaj", name: "Makyaj"}
   - {id: "cilt-bakimi", name: "Cilt Bakım"}
   - {id: "sac-bakimi", name: "Saç Bakım"}
@@ -88,120 +22,37 @@ main_categories:
   - {id: "ev-yasam", name: "Ev & Yaşam"}
   - {id: "cok-satan-urunler", name: "Çok Satan Ürünler"}
 
+main_categories:
+  - {id: "urunler", name: "Tüm Ürünler"}
+
 category_search_api:
   method: GET
-  url: "https://www.eveshop.com.tr/collections/{category_id}"
+  url: "https://www.eveshop.com.tr/products.json"
   params:
+    limit: 250
     page: "{page}"
   pagination:
     page_param: page
-    zero_indexed: false   # Shopify collection sayfaları page=1'den başlar (page=0 değil)
-    # page_size YOK - Eveshop kaç ürün/sayfa gösterdiğini kendi belirliyor (gözlemlendi: 18),
-    # bizim limit dayatmamız mümkün değil, page_size sadece rate-limit hesaplarında kullanılmıyor.
+    zero_indexed: false
   response:
-    format: html_regex_json
-    # Doğrulandı (eveshop_test.html, /collections/makyaj?page=2): 18/18 üründe eşleşti.
-    # HTML entity escape'li tek tırnak içinde bir JSON array - html_parser.extract_all_json_blocks
-    # html.unescape ile çözüp parse ediyor.
-    extract_regex: "x-labels-data='(\\[.*?\\])'"
-    # items_path YOK: format html_regex_json olduğunda extract edilen liste doğrudan "items"
-    # sayılır (bkz. base_parser.parse_response_body / fetch_category_pages).
+    format: json
+    items_path: "products"
 
-# raw_html_extraction: category_search_api'deki extract_regex'ten (sadece x-labels-data/fiyat)
-# FARKLI bir amaç için - matching/duckdb_pipeline.py arşivlenmiş ham HTML'i DuckDB'ye landing
-# yaparken barkod (x-variants-data) ve ürün URL'sini de aynı sayfadan çıkarmak için kullanır.
-# core/ ve matching/ birbirini import etmediği için (bkz. CLAUDE.md) regex'in kendisi burada,
-# config'te tek doğruluk kaynağı olarak yaşıyor - her iki modül de kendi extraction kodunda
-# buradan okur, birbirinin Python kodunu import etmez.
 raw_html_extraction:
-  # Barkod/sku/fiyat içeren blok - hem kategori sayfasında (class='x-variants-data', tek
-  # tırnak) hem ürün detay sayfasında (class="variant-selects", çift tırnak) aynı yapı, farklı
-  # tırnak stili - ikisini de yakalayan regex (doğrulandı, 2026-07-30).
   variant_block_regex: "<script type=['\"]application/json['\"]>\\s*(\\[.*?\\])\\s*</script>"
-  # xVariantSelect(...) çağrısındaki ürün URL path'i + product_id çifti (virgülle ayrık,
-  # bitişik argümanlar) - x-labels-data.product_id ile eşleşir (doğrulandı).
   product_url_regex: "'(/products/[a-zA-Z0-9\\-]+)',\\s*'(\\d+)'"
-  # Join key: x-labels-data.variant_id == variant_block'un "id" alanı (doğrulandı, 18/18).
-  # Bu alan adları eskiden matching/duckdb_pipeline.py'de LİTERAL olarak gömülüydü (fonksiyon
-  # adı bile parse_eveshop_html idi) - site adı hardcode etmeme ilkesi gereği (bkz. CLAUDE.md)
-  # config'e taşındı; kod artık sadece "hangi alan neyle join edilecek" bilgisini okuyor.
-  variant_id_field: "id"          # variant_block içindeki kimlik alanı
-  variant_join_key: "variant_id"  # x-labels-data'da buna karşılık gelen alan
-  variant_prefix: "variant."      # birleştirilen varyant alanlarının sütun öneki
+  variant_id_field: "id"
+  variant_join_key: "variant_id"
+  variant_prefix: "variant."
   product_url_join_key: "product_id"
-
-  # analytics_regex (2026-08-02 EKLENDİ): Shopify'ın sayfaya gömdüğü client-side analytics
-  # ("Web Pixels") olayından - "collection_viewed" event payload'ı, sayfanın ÇOK UZAK bir
-  # noktasında (kart bloğundan binlerce karakter ötede, <script> içindeki bir JSON-string'in
-  # İÇİNDE JSON-escape edilmiş halde) duruyor. Kullanıcının "barkod x-variants-data'dan
-  # geliyordu, görsel de HTML'den gelebilir mi?" sorusu üzerine arandı ve bulundu - bu
-  # x-labels-data/x-variants-data'dan TAMAMEN AYRI, 3. bir gömülü JSON kaynağı.
-  # Tek regex geçişinde 3 yeni alan birden verir (18/18 üründe, 2 farklı kategori sayfasında
-  # test edildi, sıfır kayıp):
-  #   - vendor: GERÇEK marka adı (önceden "Eveshop'ta marka kolonu yok" denmişti - YANLIŞTI,
-  #     burada varmış, örn. 'JOHNSONS BABY', 'GOLDEN ROSE')
-  #   - type: TAM kategori hiyerarşisi (örn. 'Eve Genel Hiyerarşi > ANNE& BEBEK BAKIM >
-  #     BEBEK KOZMETİK') - önceden bunun SADECE ayrı bir ürün detay sayfası isteğiyle
-  #     (/products/{handle}.js, "Kaynak C") alınabileceği düşünülüyordu, YANLIŞTI - kategori
-  #     sayfasının kendisinde zaten varmış, ekstra istek gerekmiyor.
-  #   - image.src: GERÇEK ürün görseli (önceden "hiç görsel alanı yok" denmişti - o da
-  #     YANLIŞTI, sadece x-labels-data/x-variants-data'da değilmiş, bu 3. blokta varmış).
-  #     Protokolsüz path (//www.eveshop.com.tr/...) - 'https:' önekiyle tam URL olur.
-  # Join key: analytics_regex'in kendi "id" alanı (variant seviyesinde) == x-labels-data.
-  # variant_id (doğrulandı, 2 sayfada 18/18 + 18/18 tam kesişim). "sku" alanı da variant.sku
-  # ile birebir eşleşiyor (ekstra çapraz doğrulama).
-  # NOT - regex TEK TIRNAKLA yazılmalı (YAML): pattern içinde '\\"' (tek backslash + tırnak,
-  # JSON-string-içinde-JSON-string kaçışı) birebir korunmalı - çift tırnaklı YAML string bu
-  # kaçışları YANLIŞ katlar, test edilip doğrulandı (2026-08-02).
   analytics_regex: '\\"vendor\\":\\"(.*?)\\",\\"id\\":\\"(\d+)\\",\\"untranslatedTitle\\":\\".*?\\",\\"url\\":\\"(.*?)\\",\\"type\\":\\"(.*?)\\"\},\\"id\\":\\"(\d+)\\",\\"image\\":\{\\"src\\":\\"(.*?)\\"\},\\"sku\\":\\"(\d+)\\"'
-  # Yakalanan gruplar sırasıyla: (vendor, product_id, product_url, category_type, variant_id,
-  # image_src, sku). Değerler JSON-string-escape'li (\/  -> /, > -> >, vb.) - unescape için
-  # json.loads('"' + deger + '"') kullanılmalı (matching/duckdb_pipeline.py'de böyle yapılıyor).
-  #
-  # analytics_groups: yukarıdaki capture group'ların SIRALI çıktı adları. '_' ile başlayanlar
-  # tabloya YAZILMAZ, sadece join/hizalama için okunur. Bu eşleme de eskiden kodda gömülüydü.
   analytics_groups: ["brand", "_product_id", "product_url", "category_hierarchy", "_variant_id", "image_url", "_sku"]
-  analytics_join_group: "_variant_id"   # bu grup, variant_join_key ile eşleştirilir
-  # image.src protokolsüz path olarak geliyor (//www.eveshop.com.tr/...) - tam URL için önek:
+  analytics_join_group: "_variant_id"
   analytics_prefixes:
     image_url: "https:"
 
-# matching/duckdb_pipeline.py'nin dedup adımı için: ham üründe kararlı/benzersiz kimlik hangi
-# alanda. Eveshop'ta tekrar KARIŞIK (2026-07-30, 422 örnek): 33'ü aynı kategoriden (sayfalama
-# gürültüsü), 389'u farklı kategoriden (gerçek örtüşme - büyük kısmı cok-satan-urunler).
 product_id_field: "product_id"
 
-# field_mapping — 2026-08-02'de yazıldı (yukarıdaki 2026-07-30 notu artık geçersiz, normalize.py
-# artık gerçek bir taslak - tests/matching/normalize.py). Kullanıcının elindeki bağımsız kaynaklar
-# ("explanation" alanlarıyla annotate edilmiş örnek sayfa JSON'u + 3309 satırlık CSV) SADECE
-# başlangıç örneklemesi olarak kullanıldı, hiçbir iddiaya doğrudan güvenilmedi (bkz.
-# feedback_verify_ai_reports.md) - her satır raw_eveshop/clean_eveshop'taki gerçek veriyle
-# (N=3309 CSV karşılaştırması) VE kullanıcının CANLI sitede/sepette yaptığı testlerle
-# çapraz kontrol edildi.
-#
-# BÜYÜK ÖLÇEKLİ CSV DOĞRULAMASI (3309 varyant, kullanıcının bağımsız/eski kaydı,
-# clean_eveshop'un 2026-08-01 snapshot'ıyla variant_id üzerinden programatik karşılaştırıldı):
-#   name: 3282/3282 (%100) BİREBİR  |  available: 3282/3282 (%100) BİREBİR
-#   price (Standart Fiyat): 3282/3282 (%100) BİREBİR - istisnasız.
-#   qty: 3054/3282 (%93.1) - küçük fark doğal stok dalgalanması.
-#   eve_price: 2383/3282 (%72.6) - kalan fark CSV'nin bizim 07-01 crawl'ımızdan FARKLI bir
-#   tarihte alınmış olmasıyla tutarlı (Watsons/Rossmann'da da AYNI zamanlama-kaynaklı fark
-#   gözlemlenmişti - kampanya günden güne değişiyor, sistemik hata değil).
-#   27 varyant (%0.8) bizim hiç çekmediğimiz kodlar - katalog kapsama farkı.
-#
-# EN ÖNEMLİ BULGU - eve_price ("EVE KART+'A ÖZEL" fiyatı) Rossmann'la AYNI desende, Watsons'tan
-# FARKLI (2026-08-02, kullanıcı 2 ayrı canlı sepet testi yaptı, İKİSİNDE DE):
-#   Sayfada İKİ fiyat gösteriliyor (örn. "2.549,50 TL" + "EVE KART +'A ÖZEL 764,50 TL") - Watsons
-#   gibi PUBLIC görünür. AMA sepete/ödeme adımına kadar giriş yapmadan gidildiğinde tam `price`
-#   tahsil ediliyor (2.549,50 TL, 764,50 DEĞİL) - indirim üyeliğe/karta GERÇEKTEN koşullu.
-#   Rossmann'daki "üye olsaydınız X TL kazanırdınız" bildirimi burada çıkmadı ama sonuç aynı:
-#   indirim otomatik uygulanmıyor. Bu yüzden Rossmann'daki gibi conditional_promo_price_try
-#   deseni kullanıldı, sale_price_try'a coalesce EDİLMEDİ.
-#
-# confidence seviyeleri (diğer 3 site ile aynı sözleşme):
-#   verified_checkout   -> gerçek sepete eklenip/checkout'a gidilip doğrulandı
-#   verified_data       -> clean_eveshop/raw_eveshop'taki gerçek veriyle (N=3309 CSV dahil) doğrulandı
-#   plausible_unverified -> mantıklı ama canlı sitede bizzat çapraz kontrol edilemedi
 field_mapping:
   id: {strategy: direct_path, path: "product_id", confidence: verified_data, note: "product_id_field zaten bu. Ürünler tek-varyantlı olduğu doğrulandığı için (bkz. yukarıdaki not) variant_id ile pratikte 1:1."}
   source_sku: {strategy: direct_path, path: "variant.sku", confidence: verified_data, note: "22 haneli sıfır dolgulu Eveshop'a özel iç kod, product_id/variant_id ile sayısal bir ilişkisi yok."}
@@ -212,7 +63,6 @@ field_mapping:
   image_url: {strategy: direct_path, path: "image_url", confidence: verified_data, note: "DÜZELTME (2026-08-02): önce 'hiç görsel alanı yok' denmişti - YANLIŞTI. variant.featured_image (x-variants-data içinde) gerçekten hep boştu ama analytics_regex ile TAMAMEN AYRI bir kaynaktan (bkz. raw_html_extraction notu) gerçek görsel URL'i bulundu, %100 dolu (7219/7219). Canlı HEAD isteğiyle doğrulandı: 200, image/webp, ~19.5KB gerçek ürün fotoğrafı döndü."}
   currency: {strategy: static, value: "TRY", confidence: verified_data, note: "Eveshop ham veride ayrı bir currency alanı yok (price_with_currency metninde 'TL' geçiyor ama ayrıştırmaya değmez), tüm fiyatlar zaten TL - Rossmann'daki gibi sabit."}
 
-  # --- Fiyat: N=3309 CSV doğrulaması + kullanıcının 2 ayrı CANLI sepet testiyle netleşti ---
   list_price_try: {strategy: direct_path, path: "price", unit: kurus, confidence: verified_checkout, note: "CSV'nin 'Standart Fiyat'ıyla 3282/3282 (%100) BİREBİR eşleşti + 2 canlı sepet testinde 'Ürün Toplamı'/checkout tutarıyla birebir (2.500,00 TL ve 2.549,50 TL) doğrulandı. Kuruş cinsinden (Gratis gibi, Rossmann/Watsons'tan farklı)."}
   sale_price_try: {strategy: direct_path, path: "price", unit: kurus, confidence: verified_checkout, note: "list_price_try ile AYNI - Rossmann'daki gibi gerçek/koşulsuz bir site-geneli indirim katmanı yok, normal müşteri (EVE KART+ olmadan) her zaman price öder, 2/2 canlı sepet testinde doğrulandı. eve_price'a COALESCE EDİLMEDİ (bkz. yukarıdaki büyük not) - genuinely koşullu."}
   conditional_promo_price_try: {strategy: computed, formula: "CASE WHEN eve_price > 0 THEN eve_price ELSE NULL END", unit: kurus, confidence: verified_checkout, note: "'EVE KART+'A ÖZEL' fiyatı - Rossmann'ın conditional_promo_price_try'ı gibi KOŞULLU: sayfada herkese açık gösteriliyor ama GERÇEKTEN EVE KART+ üyeliği gerektiriyor, kullanıcının 2 canlı sepet testinde de giriş yapmadan tam price tahsil edildi. eve_price=0 ürünlerde bu KART indirimi YOK demek (Watsons/Rossmann'daki 'koşullu fiyat alanı boş/sıfır' deseniyle aynı) - canlı doğrulandı (Pişik Önleyici Merhem örneği: bizim eve_price=0 idi, kullanıcı sepette gerçekten price'ın tam tutarını - 649,00 TL - ödedi, 0 TL DEĞİL)."}
