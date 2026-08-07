@@ -44,6 +44,7 @@ price-bot/
 ├── matching/                    # DuckDB — bronze->silver ELT (eşleştirme YOK, bkz. Kapsam Dışı)
 │   ├── duckdb_pipeline.py        # raw_{site} landing (MinIO -> DuckDB, incremental)
 │   ├── normalize.py              # isim/birim normalizasyonu, clean_{site} -> silver_products
+│   ├── sync_to_postgres.py       # silver_products -> Postgres matching.silver_products (idempotent upsert)
 │   └── analysis/                 # site başına column decisions.yaml + build_clean.py (raw -> clean)
 │
 ├── selfheal/                    # AYRI modül — LLM tabanlı config onarımı
@@ -60,7 +61,7 @@ price-bot/
 │
 ├── db/                           # postgres_schema.sql, migrations/
 ├── dags/                         # Airflow DAG'ları (site bazlı paralel task'lar)
-├── shared/                       # hashing.py, http_client.py (retry/backoff), logging_config.py
+├── shared/                       # hashing.py, http_client.py (retry/backoff), pg_client.py (Postgres havuzu), logging_config.py
 ├── .github/workflows/            # CI/CD (bkz. aşağıdaki bölüm)
 └── tests/
 ```
@@ -159,6 +160,12 @@ dags/
 ```
 
 Pool kullan (`llm_diagnosis_pool`, slot=2-3) — LLM çağrılarının eş zamanlı sayısını Airflow seviyesinde sınırla, quota patlamasını kod içinde değil orkestrasyon seviyesinde önle.
+
+---
+
+## Postgres Senkronizasyonu (matching/sync_to_postgres.py)
+
+`silver_products` (DuckDB, `matching/pricebot.duckdb`) sunucuda üretimde sorgulanabilir/kalıcı olması için Postgres'teki `matching.silver_products` tablosuna senkronize edilir. Bu, siteler arası ürün eşleştirme DEĞİL (bkz. Şu An Kapsam Dışı) — sadece silver katmanının site-bazlı, eşleştirilmemiş bir kopyasının Postgres'te durması. Doğal anahtar `silver_id` (`site_code + source_product_id + fetch_date`'in md5'i) üzerinden `INSERT ... ON CONFLICT DO UPDATE` ile idempotent yazılır (`crawler/sync_to_postgres.py`'nin `core.discovered_urls` için kullandığı aynı desen) — ayrı bir "senkronize edildi" takip tablosu yok, doğruluk Postgres'in `PRIMARY KEY` kısıtından gelir. Postgres bağlantı havuzu `shared/pg_client.py`'de merkezi: `crawler/` ve `matching/` birbirini import edemediği için (mimari ilke 1) iki modülün de ihtiyaç duyduğu bir kaynak istemcisi `shared/`'a taşınır — `shared/storage.py`'nin MinIO için yaptığının aynısı.
 
 ---
 

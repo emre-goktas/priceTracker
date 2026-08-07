@@ -1,26 +1,20 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 import asyncpg
-from dotenv import load_dotenv
 
 from crawler.db import get_connection
 from shared.logging_config import get_logger
+from shared.pg_client import get_pg_pool
 
-load_dotenv()
 logger = get_logger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "postgres_schema.sql"
 BATCH_SIZE = 2000
-
-
-async def get_pg_pool() -> asyncpg.Pool:
-    return await asyncpg.create_pool(dsn=os.environ["POSTGRES_URL"])
 
 
 async def ensure_schema(pool: asyncpg.Pool) -> None:
