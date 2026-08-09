@@ -3,10 +3,10 @@ version: '3.8'
 services:
   minio:
     image: minio/minio:latest
-    container_name: ecomm_minio
+    container_name: pricebot_minio
     ports:
-      - "9000:9000"    # API Portu
-      - "9001:9001"    # Web Arayüz (Console) Portu
+      - "9010:9000"    # API Portu (9000 host'ta başka bir projenin minio'suyla çakışıyor)
+      - "9011:9001"    # Web Arayüz (Console) Portu
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-SuperSecretPassword123!}
@@ -17,7 +17,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: ecomm_postgres
+    container_name: pricebot_postgres
     ports:
       - "5432:5432"
     environment:
@@ -27,6 +27,18 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: always
+
+  app:
+    build: .
+    container_name: price_bot_app
+    network_mode: host  # .env'deki POSTGRES_URL/MINIO_URL 'localhost' referanslarını değiştirmeden çalıştırır
+    env_file: .env
+    volumes:
+      - .:/app  # git pull sonrası sadece restart yeterli olsun; matching/pricebot.duckdb ve logs/ kalıcı kalır
+    depends_on:
+      - postgres
+      - minio
+    restart: unless-stopped
 
 volumes:
   minio_data:

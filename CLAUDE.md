@@ -188,6 +188,8 @@ Airflow henüz kurulmadı (`dags/*.py` hâlâ boş stub, tam kurulumu ayrı/büy
 
 **Anti-bot:** `rate_limit.delay_seconds` (config, site başına) artık `core/parsers/base_parser.py` ve `core/fetchers/category_fetcher.py`'de ±%20 jitter'lı uygulanıyor — sabit/deterministik gecikme otomasyon imzası olarak algılanabilir. Konfigürasyon şeması değişmedi, `delay_seconds` hâlâ "ortalama" gecikme.
 
+**Dockerize edilmiş dağıtım (2026-08-10):** `docker-compose.yml`'deki `app` servisi (`Dockerfile` + `docker/entrypoint.sh`) `postgres`+`minio`'nun yanına eklendi - container başlarken `scripts/install_cron.py`'yi çalıştırıp `cron -f`'i foreground'da tutuyor, host'ta ayrı bir Python/venv/cron kurulumuna gerek kalmıyor. `network_mode: host` kullanılıyor (`.env`'deki `localhost` referansları dev makine ile sunucu arasında DEĞİŞMEDEN taşınabilsin diye - Docker'ın kendi servis-adı ağı ayrı bir `.env` gerektirirdi). Tüm proje dizini bind-mount (`.:/app`) - `git pull` sonrası `docker compose restart app` yeterli, `matching/pricebot.duckdb`/`logs/` host'ta kalıcı. Sunucuya taşıma: `git clone/pull` + `.env`'i kopyala + `docker compose up -d --build`. **Host'ta ayrıca `scripts/install_cron.py` çalıştırılmışsa crontab'ı temizleyin** (`crontab -r` veya BEGIN/END bloğunu kaldırın) - hem host hem container cron kurarsa pipeline günde 8 kez tetiklenir.
+
 ---
 
 ## Şu An Kapsam Dışı (İleride, Şimdi Değil)

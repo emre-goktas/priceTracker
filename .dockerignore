@@ -1,0 +1,9 @@
+.venv/
+.git/
+logs/
+*.duckdb
+*.duckdb.wal
+__pycache__/
+*.pyc
+.env
+.claude/
