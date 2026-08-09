@@ -51,7 +51,7 @@ async def sync_silver(
     set_clause = ",\n            ".join(f"{c} = EXCLUDED.{c}" for c in UPDATE_COLUMNS)
     placeholders = ", ".join(f"${i}" for i in range(1, len(COLUMNS) + 1))
     insert_sql = f"""
-        INSERT INTO matching.silver_products ({", ".join(COLUMNS)}, synced_at)
+        INSERT INTO pricing.silver_products ({", ".join(COLUMNS)}, synced_at)
         VALUES ({placeholders}, now())
         ON CONFLICT (silver_id) DO UPDATE SET
             {set_clause},
@@ -61,7 +61,7 @@ async def sync_silver(
     async with pool.acquire() as pg_conn:
         await pg_conn.executemany(insert_sql, rows)
 
-    logger.info(f"matching.silver_products: {len(rows)} satır sync edildi")
+    logger.info(f"pricing.silver_products: {len(rows)} satır sync edildi")
     return len(rows)
 
 
@@ -77,7 +77,7 @@ async def run_sync(sites: list[str] | None = None) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="DuckDB silver_products -> Postgres matching.silver_products"
+        description="DuckDB silver_products -> Postgres pricing.silver_products"
     )
     parser.add_argument("--sites", nargs="*", help="sadece bu siteler (varsayılan: hepsi)")
     args = parser.parse_args()
