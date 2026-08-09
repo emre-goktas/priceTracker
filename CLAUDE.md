@@ -44,7 +44,7 @@ price-bot/
 ├── matching/                    # DuckDB — bronze->silver ELT (eşleştirme YOK, bkz. Kapsam Dışı)
 │   ├── duckdb_pipeline.py        # raw_{site} landing (MinIO -> DuckDB, incremental)
 │   ├── normalize.py              # isim/birim normalizasyonu, clean_{site} -> silver_products
-│   ├── sync_to_postgres.py       # silver_products -> Postgres matching.silver_products (idempotent upsert)
+│   ├── sync_to_postgres.py       # silver_products -> Postgres pricing.silver_products (idempotent upsert)
 │   └── analysis/                 # site başına column decisions.yaml + build_clean.py (raw -> clean)
 │
 ├── selfheal/                    # AYRI modül — LLM tabanlı config onarımı
@@ -58,6 +58,11 @@ price-bot/
 │   ├── sites.yaml                # MASTER site registry (name, base_url, country, enabled)
 │   ├── tr/{site}.yaml             # fetch-özel config (endpoint template, header, parser mapping)
 │   └── versions/{site}/           # self-heal geçmişi, hash'li (active.yaml + history/)
+│
+├── content/                      # BİLİNÇLİ KISMİ İSTİSNA (bkz. Kapsam Dışı) — sadece site-bazlı fiyat düşüşü alarmı
+│   ├── alert_engine.py            # pricing.silver_products (Postgres) -> LEAST(koşulsuz, koşullu) "efektif fiyat" düşüşü, eşik-bazlı
+│   └── publishers/
+│       └── telegram.py            # Telegram Bot API sendMessage (shared/http_client.py üzerinden)
 │
 ├── db/                           # postgres_schema.sql, migrations/
 ├── dags/                         # Airflow DAG'ları (site bazlı paralel task'lar)
@@ -165,14 +170,14 @@ Pool kullan (`llm_diagnosis_pool`, slot=2-3) — LLM çağrılarının eş zaman
 
 ## Postgres Senkronizasyonu (matching/sync_to_postgres.py)
 
-`silver_products` (DuckDB, `matching/pricebot.duckdb`) sunucuda üretimde sorgulanabilir/kalıcı olması için Postgres'teki `matching.silver_products` tablosuna senkronize edilir. Bu, siteler arası ürün eşleştirme DEĞİL (bkz. Şu An Kapsam Dışı) — sadece silver katmanının site-bazlı, eşleştirilmemiş bir kopyasının Postgres'te durması. Doğal anahtar `silver_id` (`site_code + source_product_id + fetch_date`'in md5'i) üzerinden `INSERT ... ON CONFLICT DO UPDATE` ile idempotent yazılır (`crawler/sync_to_postgres.py`'nin `core.discovered_urls` için kullandığı aynı desen) — ayrı bir "senkronize edildi" takip tablosu yok, doğruluk Postgres'in `PRIMARY KEY` kısıtından gelir. Postgres bağlantı havuzu `shared/pg_client.py`'de merkezi: `crawler/` ve `matching/` birbirini import edemediği için (mimari ilke 1) iki modülün de ihtiyaç duyduğu bir kaynak istemcisi `shared/`'a taşınır — `shared/storage.py`'nin MinIO için yaptığının aynısı.
+`silver_products` (DuckDB, `matching/pricebot.duckdb`) sunucuda üretimde sorgulanabilir/kalıcı olması için Postgres'teki `pricing.silver_products` tablosuna senkronize edilir. Bu, siteler arası ürün eşleştirme DEĞİL (bkz. Şu An Kapsam Dışı) — sadece silver katmanının site-bazlı, eşleştirilmemiş bir kopyasının Postgres'te durması. Şema adı bilinçli olarak `pricing` (`matching` DEĞİL) — `core` şeması da "crawler modülü" değil konu başlığı bazlı adlandırılmıştı (`core.sites`/`core.discovered_urls`), aynı konvansiyon burada da uygulanıyor; ayrıca "matching" adı artık kapsam dışı bırakılan siteler-arası eşleştirmeyle karıştırılmasın diye 2026-08-08'de `matching` şemasından buraya taşındı (veri kopyalanmadı, sadece `ALTER TABLE ... SET SCHEMA`). Doğal anahtar `silver_id` (`site_code + source_product_id + fetch_date`'in md5'i) üzerinden `INSERT ... ON CONFLICT DO UPDATE` ile idempotent yazılır (`crawler/sync_to_postgres.py`'nin `core.discovered_urls` için kullandığı aynı desen) — ayrı bir "senkronize edildi" takip tablosu yok, doğruluk Postgres'in `PRIMARY KEY` kısıtından gelir. Postgres bağlantı havuzu `shared/pg_client.py`'de merkezi: `crawler/`, `matching/` ve `content/` birbirini import edemediği için (mimari ilke 1) ihtiyaç duyan üç modülün de kullandığı bir kaynak istemcisi `shared/`'a taşınır — `shared/storage.py`'nin MinIO için yaptığının aynısı.
 
 ---
 
 ## Şu An Kapsam Dışı (İleride, Şimdi Değil)
 
 - Siteler arası ürün eşleştirme (`canonical_products`/`product_matches`, EAN + fuzzy matching, review queue) — 2026-08-07 itibariyle bilinçli olarak kapsam dışı. Sistem sunucuda 1-2 hafta stabil çalıştıktan sonra yeniden ele alınacak. `matching/` şu an sadece bronze->silver ELT'yi kapsıyor, siteler arası eşleştirme yok.
-- `content/` (alert_engine, Veo görsel üretimi, publishers: Telegram/Instagram/Twitter) — ürün eşleştirme kapsam dışı kaldığı sürece bu da başlamayacak
+- `content/`'in TAM vizyonu (siteler arası canonical alert, Instagram/Twitter, Veo görsel üretimi) — ürün eşleştirme kapsam dışı kaldığı sürece bu da başlamayacak. **BİLİNÇLİ KISMİ İSTİSNA (2026-08-07):** site-bazlı (cross-site DEĞİL) fiyat düşüşü alarmı eşleştirme gerektirmediği için öne çekildi — Eveshop'un HTML-scraping istisnasıyla aynı desen (bkz. Proje Özeti). Sadece `content/alert_engine.py` + `content/publishers/telegram.py`, Postgres `pricing.silver_products`'ı okuyor (hem koşulsuz hem koşullu/kart fiyatını, görsel dahil), `crawler/`/`core/`/`matching/` hiçbirini import etmiyor.
 - Çoklu coğrafya (`configs/eu/`, `configs/us/`, vs.) — sadece 3 TR sitesi uçtan uca stabil çalıştıktan sonra
 - DuckDB dışında ek analitik katman — Postgres veri hacmi gerçekten sorun yaratmadan eklenmeyecek
 

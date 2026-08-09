@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+from html import escape
+
+import asyncpg
+
+from content.publishers.telegram import send_message, send_photo
+from shared.logging_config import get_logger
+from shared.pg_client import get_pg_pool
+
+logger = get_logger(__name__)
+
+DEFAULT_THRESHOLD_PCT = 10.0
+MAX_ITEMS_TO_SEND = 30
+SEND_DELAY_SECONDS = 0.3
+
+CONDITIONAL_LABELS = {
+    "gratis": "🎫 Gratis Kart Fiyatı",
+    "rossmann": "🎫 Rossmann Card Fiyatı",
+    "eveshop": "🎫 EVE Kart+'a Özel",
+    "watsons": "🎫 Üye Fiyatı",
+}
+
+# Her (site_code, source_product_id) için en son 2 fetch_date karşılaştırılır (site-bazlı,
+# siteler arası eşleştirme YOK - bkz. CLAUDE.md "Şu An Kapsam Dışı"). is_in_stock filtresi
+# şart: stokta olmayan ürünlerin fiyatı kayan/güvenilmez artık değer olabiliyor (bkz. proje
+# hafızası, Watsons örneği) - yoksa yanlış-pozitif alarm üretir.
+#
+# "Koşulsuz" (sale_price_try) ve "koşullu/kart" (conditional_promo_price_try) fiyatlar AYRI
+# alarmlar DEĞİL - hangisi düşükse (LEAST) MÜŞTERİNİN GERÇEKTE ÖDEYECEĞİ fiyat odur, alarm
+# bu "efektif fiyat"ın düşüşüne göre tetiklenir. Postgres'in LEAST()'i NULL'ı YOK SAYAR (ikisi
+# de NULL değilse), yani conditional_promo_price_try boşsa efektif fiyat otomatik sale_price_try
+# olur - kullanıcının Eveshop örneği (799 TL normal / 319.50 TL EVE Kart+) bunun içindir: kart
+# fiyatı varken normal fiyata bakmak yanıltıcı, gerçek karar noktası ikisinin ucuz olanı.
+DROP_QUERY = """
+WITH ranked AS (
+    SELECT *,
+        LEAST(sale_price_try, conditional_promo_price_try) AS effective_price,
+        ROW_NUMBER() OVER (
+            PARTITION BY site_code, source_product_id ORDER BY fetch_date DESC
+        ) AS rn
+    FROM pricing.silver_products
+    WHERE is_in_stock IS TRUE AND sale_price_try IS NOT NULL
+)
+SELECT
+    l.site_code, l.source_product_id, l.name, l.brand, l.url, l.image_url,
+    p.sale_price_try AS old_sale, l.sale_price_try AS new_sale,
+    p.conditional_promo_price_try AS old_conditional, l.conditional_promo_price_try AS new_conditional,
+    p.effective_price AS old_effective, l.effective_price AS new_effective,
+    ROUND((100 * (p.effective_price - l.effective_price) / p.effective_price)::numeric, 1) AS pct_drop
+FROM ranked l
+JOIN ranked p
+    ON p.site_code = l.site_code AND p.source_product_id = l.source_product_id AND p.rn = 2
+WHERE l.rn = 1
+  AND l.effective_price < p.effective_price
+  AND (p.effective_price - l.effective_price) / p.effective_price * 100 >= $1
+ORDER BY pct_drop DESC
+"""
+
+
+def format_caption(row: asyncpg.Record) -> str:
+    site_label = row["site_code"].capitalize()
+    name = escape(row["name"] or "")
+    brand = escape(row["brand"] or "")
+
+    lines = [f"🛍 <b>{site_label}</b> — {name}"]
+    if brand:
+        lines.append(brand)
+    lines.append("")
+
+    old_sale, new_sale = row["old_sale"], row["new_sale"]
+    if old_sale != new_sale:
+        lines.append(f"Normal Fiyat: <s>{old_sale:.2f} TL</s> → <b>{new_sale:.2f} TL</b>")
+    else:
+        lines.append(f"Normal Fiyat: {new_sale:.2f} TL")
+
+    new_conditional = row["new_conditional"]
+    if new_conditional is not None:
+        label = CONDITIONAL_LABELS.get(row["site_code"], "🎫 Üye Fiyatı")
+        old_conditional = row["old_conditional"]
+        if old_conditional is not None and old_conditional != new_conditional:
+            lines.append(f"{label}: <s>{old_conditional:.2f} TL</s> → <b>{new_conditional:.2f} TL</b>")
+        else:
+            lines.append(f"{label}: <b>{new_conditional:.2f} TL</b>")
+
+        if new_conditional < new_sale:
+            gap_pct = round((new_sale - new_conditional) / new_sale * 100)
+            lines.append(f"💡 Kart ile normal fiyattan %{gap_pct} daha ucuz")
+
+    lines.append("")
+    lines.append(f"📉 <b>%{row['pct_drop']}</b> düştü")
+    # Görünen metin gerçek URL'in AYNISI olmalı - Telegram, <a href> ile farklı bir görünen
+    # metin (örn. "Ürüne git") kullanılırsa anti-phishing "Bağlantıyı Aç?" onay penceresi
+    # gösteriyor. Ham URL'i olduğu gibi yazmak Telegram'ın otomatik link algılamasına
+    # bırakır - tıklanınca direkt açılır, ekstra onay adımı olmaz.
+    lines.append(escape(row["url"]))
+    return "\n".join(lines)
+
+
+async def find_price_drops(pool: asyncpg.Pool, threshold_pct: float) -> list[asyncpg.Record]:
+    async with pool.acquire() as conn:
+        return await conn.fetch(DROP_QUERY, threshold_pct)
+
+
+async def send_drops(rows: list[asyncpg.Record]) -> None:
+    to_send = rows[:MAX_ITEMS_TO_SEND]
+    await send_message(f"📉 <b>{len(rows)}</b> üründe fiyat fırsatı bulundu:")
+
+    for row in to_send:
+        caption = format_caption(row)
+        if row["image_url"]:
+            await send_photo(row["image_url"], caption)
+        else:
+            await send_message(caption)
+        await asyncio.sleep(SEND_DELAY_SECONDS)
+
+    if len(rows) > MAX_ITEMS_TO_SEND:
+        await send_message(f"... ve {len(rows) - MAX_ITEMS_TO_SEND} ürün daha")
+
+
+async def run_alerts(threshold_pct: float = DEFAULT_THRESHOLD_PCT) -> int:
+    pool = await get_pg_pool()
+    rows = await find_price_drops(pool, threshold_pct)
+    if not rows:
+        logger.info(f"Eşik (%{threshold_pct}) üstü fiyat düşüşü yok")
+        return 0
+
+    await send_drops(rows)
+    logger.info(f"{len(rows)} fiyat düşüşü Telegram'a gönderildi (eşik: %{threshold_pct})")
+    return len(rows)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="pricing.silver_products'ta efektif fiyat düşüşü tespit edip Telegram'a gönderir"
+    )
+    parser.add_argument(
+        "--threshold", type=float, default=DEFAULT_THRESHOLD_PCT,
+        help="alarm eşiği yüzde olarak (varsayılan: 10)",
+    )
+    args = parser.parse_args()
+    asyncio.run(run_alerts(args.threshold))
+
+
+if __name__ == "__main__":
+    main()

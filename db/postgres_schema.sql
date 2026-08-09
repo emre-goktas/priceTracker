@@ -23,9 +23,9 @@ CREATE TABLE IF NOT EXISTS core.discovered_urls (
 CREATE INDEX IF NOT EXISTS idx_discovered_urls_site_active
     ON core.discovered_urls (site_id, is_active);
 
-CREATE SCHEMA IF NOT EXISTS matching;
+CREATE SCHEMA IF NOT EXISTS pricing;
 
-CREATE TABLE IF NOT EXISTS matching.silver_products (
+CREATE TABLE IF NOT EXISTS pricing.silver_products (
     silver_id TEXT PRIMARY KEY,
     site_code TEXT NOT NULL,
     source_product_id TEXT NOT NULL,
@@ -56,6 +56,6 @@ CREATE TABLE IF NOT EXISTS matching.silver_products (
 );
 
 CREATE INDEX IF NOT EXISTS idx_silver_products_site_date
-    ON matching.silver_products (site_code, fetch_date);
+    ON pricing.silver_products (site_code, fetch_date);
 CREATE INDEX IF NOT EXISTS idx_silver_products_source_product
-    ON matching.silver_products (site_code, source_product_id);
+    ON pricing.silver_products (site_code, source_product_id);
