@@ -59,3 +59,13 @@ CREATE INDEX IF NOT EXISTS idx_silver_products_site_date
     ON pricing.silver_products (site_code, fetch_date);
 CREATE INDEX IF NOT EXISTS idx_silver_products_source_product
     ON pricing.silver_products (site_code, source_product_id);
+
+-- content/alert_engine.py'nin "bu düşüşü zaten bildirdim mi" takibi. silver_id zaten
+-- (site_code, source_product_id, fetch_date) içeriyor - aynı gün cron 4 kez çalışsa bile
+-- aynı (site, ürün, gün) kombinasyonu için alarm SADECE 1 kez gönderilir.
+CREATE TABLE IF NOT EXISTS pricing.alerted_drops (
+    silver_id TEXT PRIMARY KEY,
+    old_effective_price DOUBLE PRECISION NOT NULL,
+    new_effective_price DOUBLE PRECISION NOT NULL,
+    alerted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

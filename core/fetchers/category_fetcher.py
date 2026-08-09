@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import random
 from pathlib import Path
 
 import yaml
@@ -163,7 +164,9 @@ async def fetch_site_categories(plugin) -> None:
     if max_concurrent <= 1:
         for index, (category_id, category_name) in enumerate(categories):
             if index > 0:
-                await asyncio.sleep(delay_seconds)  # kategoriler arası da bekleme - art arda istek WAF'ı tetikleyebiliyor
+                # ±%20 jitter - sabit/deterministik gecikme otomasyon imzası olarak
+                # algılanabilir. Kategoriler arası da bekleme - art arda istek WAF'ı tetikleyebiliyor.
+                await asyncio.sleep(delay_seconds * random.uniform(0.8, 1.2))
             await _fetch_one_category(config, site, category_id, category_name,
                                        archive_extension, archive_content_type)
         return

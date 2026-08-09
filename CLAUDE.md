@@ -57,15 +57,21 @@ price-bot/
 ├── configs/
 │   ├── sites.yaml                # MASTER site registry (name, base_url, country, enabled)
 │   ├── tr/{site}.yaml             # fetch-özel config (endpoint template, header, parser mapping)
+│   ├── schedule.yaml              # cron saatleri (TZ + price_pipeline/crawler_discovery times) - koda hardcode değil, bkz. scripts/install_cron.py
 │   └── versions/{site}/           # self-heal geçmişi, hash'li (active.yaml + history/)
 │
 ├── content/                      # BİLİNÇLİ KISMİ İSTİSNA (bkz. Kapsam Dışı) — sadece site-bazlı fiyat düşüşü alarmı
-│   ├── alert_engine.py            # pricing.silver_products (Postgres) -> LEAST(koşulsuz, koşullu) "efektif fiyat" düşüşü, eşik-bazlı
+│   ├── alert_engine.py            # pricing.silver_products -> LEAST(koşulsuz,koşullu) efektif fiyat düşüşü; pricing.alerted_drops ile tekilleştirme, toplu-kampanya özeti
 │   └── publishers/
 │       └── telegram.py            # Telegram Bot API sendMessage (shared/http_client.py üzerinden)
 │
 ├── db/                           # postgres_schema.sql, migrations/
-├── dags/                         # Airflow DAG'ları (site bazlı paralel task'lar)
+├── dags/                         # Airflow DAG'ları (site bazlı paralel task'lar) — henüz kurulmadı, bkz. scripts/
+├── scripts/                      # cron ile tetiklenen orkestrasyon - alt modülleri ASLA import etmez, sadece `python -m` subprocess ile çağırır
+│   ├── run_price_pipeline.py     # category_fetcher -> duckdb_pipeline -> build_clean -> normalize -> sync_to_postgres -> alert_engine
+│   ├── run_discovery.py          # crawler.cli sitemaps + sync (fiyat zincirinden ayrı, daha seyrek)
+│   ├── install_cron.py           # configs/schedule.yaml -> crontab (idempotent, BEGIN/END işaretli blok)
+│   └── _lock.py                  # aynı script'in üst üste binmesini önleyen PID-lock
 ├── shared/                       # hashing.py, http_client.py (retry/backoff), pg_client.py (Postgres havuzu), logging_config.py
 ├── .github/workflows/            # CI/CD (bkz. aşağıdaki bölüm)
 └── tests/
@@ -171,6 +177,16 @@ Pool kullan (`llm_diagnosis_pool`, slot=2-3) — LLM çağrılarının eş zaman
 ## Postgres Senkronizasyonu (matching/sync_to_postgres.py)
 
 `silver_products` (DuckDB, `matching/pricebot.duckdb`) sunucuda üretimde sorgulanabilir/kalıcı olması için Postgres'teki `pricing.silver_products` tablosuna senkronize edilir. Bu, siteler arası ürün eşleştirme DEĞİL (bkz. Şu An Kapsam Dışı) — sadece silver katmanının site-bazlı, eşleştirilmemiş bir kopyasının Postgres'te durması. Şema adı bilinçli olarak `pricing` (`matching` DEĞİL) — `core` şeması da "crawler modülü" değil konu başlığı bazlı adlandırılmıştı (`core.sites`/`core.discovered_urls`), aynı konvansiyon burada da uygulanıyor; ayrıca "matching" adı artık kapsam dışı bırakılan siteler-arası eşleştirmeyle karıştırılmasın diye 2026-08-08'de `matching` şemasından buraya taşındı (veri kopyalanmadı, sadece `ALTER TABLE ... SET SCHEMA`). Doğal anahtar `silver_id` (`site_code + source_product_id + fetch_date`'in md5'i) üzerinden `INSERT ... ON CONFLICT DO UPDATE` ile idempotent yazılır (`crawler/sync_to_postgres.py`'nin `core.discovered_urls` için kullandığı aynı desen) — ayrı bir "senkronize edildi" takip tablosu yok, doğruluk Postgres'in `PRIMARY KEY` kısıtından gelir. Postgres bağlantı havuzu `shared/pg_client.py`'de merkezi: `crawler/`, `matching/` ve `content/` birbirini import edemediği için (mimari ilke 1) ihtiyaç duyan üç modülün de kullandığı bir kaynak istemcisi `shared/`'a taşınır — `shared/storage.py`'nin MinIO için yaptığının aynısı.
+
+---
+
+## Zamanlanmış Çalıştırma (scripts/ + cron)
+
+Airflow henüz kurulmadı (`dags/*.py` hâlâ boş stub, tam kurulumu ayrı/büyük bir iş) — bunun yerine `scripts/run_price_pipeline.py` (fiyat zinciri, günde `configs/schedule.yaml` -> `price_pipeline.times` kadar) ve `scripts/run_discovery.py` (robots/sitemap keşfi, ayrı ve daha seyrek — `crawler_discovery.times`) cron ile tetikleniyor. `scripts/install_cron.py` bu config'ten idempotent bir crontab bloğu üretir (saatler koda hardcode değil, `schedule.yaml` değişip script yeniden çalıştırılınca crontab da güncellenir). Her orkestratör alt modülleri **import etmez** (mimari ilke 1) — her aşamayı ayrı bir `python -m <modül>` subprocess'i olarak çalıştırır, bir aşama başarısız olsa bile bir sonrakine geçilir. `scripts/_lock.py` bir PID-lock ile aynı script'in üst üste binmesini önler (bir çalıştırma normalden uzun sürerse bir sonraki tetikleme sessizce atlanır).
+
+**Site izolasyonu (kritik, cron'la günde 4 kez otomatik çalışacağı için önemi arttı):** `crawler/engine.py`, `core/fetchers/category_fetcher.py`, `matching/duckdb_pipeline.py` zaten per-site izole (`asyncio.gather(..., return_exceptions=True)` veya per-site try/except+continue) — bir sitenin bot/WAF/parse hatası diğer 3 siteyi etkilemez. `matching/normalize.py`/`matching/analysis/build_clean.py` bu izolasyona 2026-08-10'da kavuştu (öncesinde bir sitenin hatası TÜM siteleri o çalıştırmada silver/clean'den mahrum bırakıyordu — düzeltildi, artık aynı log+continue deseni).
+
+**Anti-bot:** `rate_limit.delay_seconds` (config, site başına) artık `core/parsers/base_parser.py` ve `core/fetchers/category_fetcher.py`'de ±%20 jitter'lı uygulanıyor — sabit/deterministik gecikme otomasyon imzası olarak algılanabilir. Konfigürasyon şeması değişmedi, `delay_seconds` hâlâ "ortalama" gecikme.
 
 ---
 

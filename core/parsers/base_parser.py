@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import random
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from xml.etree import ElementTree
@@ -209,7 +210,9 @@ async def fetch_category_pages(config: dict, category_id: str) -> AsyncIterator[
 
     while True:
         if page > 0:
-            await asyncio.sleep(cfg["delay_seconds"])
+            # ±%20 jitter: sabit/deterministik gecikme otomasyon imzası olarak algılanabilir,
+            # rate_limit.delay_seconds'ı hâlâ "ortalama" gecikme olarak yorumluyoruz.
+            await asyncio.sleep(cfg["delay_seconds"] * random.uniform(0.8, 1.2))
 
         request_page = page if cfg["zero_indexed"] else page + 1
         url, params = build_category_request(

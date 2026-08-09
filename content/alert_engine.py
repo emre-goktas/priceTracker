@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from html import escape
+from pathlib import Path
 
 import asyncpg
 
@@ -12,9 +13,15 @@ from shared.pg_client import get_pg_pool
 
 logger = get_logger(__name__)
 
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "postgres_schema.sql"
+
 DEFAULT_THRESHOLD_PCT = 10.0
 MAX_ITEMS_TO_SEND = 30
 SEND_DELAY_SECONDS = 0.3
+# Bir sitede aynı anda bu sayıdan fazla düşüş varsa muhtemelen site-çapında bir kampanya
+# penceresi açılmıştır (bkz. Watsons'ın otherPrices'ı toplu açılıp kapanıyor - proje hafızası),
+# tek tek fotoğraflı ürün spam'ı yerine tek özet mesaja indirilir.
+MASS_EVENT_THRESHOLD = 50
 
 CONDITIONAL_LABELS = {
     "gratis": "🎫 Gratis Kart Fiyatı",
@@ -34,6 +41,10 @@ CONDITIONAL_LABELS = {
 # de NULL değilse), yani conditional_promo_price_try boşsa efektif fiyat otomatik sale_price_try
 # olur - kullanıcının Eveshop örneği (799 TL normal / 319.50 TL EVE Kart+) bunun içindir: kart
 # fiyatı varken normal fiyata bakmak yanıltıcı, gerçek karar noktası ikisinin ucuz olanı.
+#
+# pricing.alerted_drops LEFT JOIN'i: aynı gün cron 4 kez çalışsa bile (fetch_date günlük
+# granülerlik) aynı (site, ürün, gün) düşüşü SADECE 1 kez bildirilir - silver_id zaten bu
+# üçlüyü kodluyor, daha önce alerted_drops'a yazılmışsa bu sorgu bir daha döndürmez.
 DROP_QUERY = """
 WITH ranked AS (
     SELECT *,
@@ -45,7 +56,7 @@ WITH ranked AS (
     WHERE is_in_stock IS TRUE AND sale_price_try IS NOT NULL
 )
 SELECT
-    l.site_code, l.source_product_id, l.name, l.brand, l.url, l.image_url,
+    l.silver_id, l.site_code, l.source_product_id, l.name, l.brand, l.url, l.image_url,
     p.sale_price_try AS old_sale, l.sale_price_try AS new_sale,
     p.conditional_promo_price_try AS old_conditional, l.conditional_promo_price_try AS new_conditional,
     p.effective_price AS old_effective, l.effective_price AS new_effective,
@@ -53,9 +64,11 @@ SELECT
 FROM ranked l
 JOIN ranked p
     ON p.site_code = l.site_code AND p.source_product_id = l.source_product_id AND p.rn = 2
+LEFT JOIN pricing.alerted_drops a ON a.silver_id = l.silver_id
 WHERE l.rn = 1
   AND l.effective_price < p.effective_price
   AND (p.effective_price - l.effective_price) / p.effective_price * 100 >= $1
+  AND a.silver_id IS NULL
 ORDER BY pct_drop DESC
 """
 
@@ -99,15 +112,59 @@ def format_caption(row: asyncpg.Record) -> str:
     return "\n".join(lines)
 
 
+async def ensure_schema(pool: asyncpg.Pool) -> None:
+    schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    async with pool.acquire() as conn:
+        await conn.execute(schema_sql)
+
+
 async def find_price_drops(pool: asyncpg.Pool, threshold_pct: float) -> list[asyncpg.Record]:
     async with pool.acquire() as conn:
         return await conn.fetch(DROP_QUERY, threshold_pct)
 
 
+async def record_alerted(pool: asyncpg.Pool, rows: list[asyncpg.Record]) -> None:
+    payload = [(r["silver_id"], r["old_effective"], r["new_effective"]) for r in rows]
+    async with pool.acquire() as conn:
+        await conn.executemany(
+            """
+            INSERT INTO pricing.alerted_drops (silver_id, old_effective_price, new_effective_price)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (silver_id) DO NOTHING
+            """,
+            payload,
+        )
+
+
 async def send_drops(rows: list[asyncpg.Record]) -> None:
-    to_send = rows[:MAX_ITEMS_TO_SEND]
+    # Bir sitede MASS_EVENT_THRESHOLD'u aşan düşüş, muhtemelen site-çapında tek bir kampanya
+    # olayı (tek tek ürün "fırsatı" değil) - fotoğraflı spam yerine tek özet mesaja indirilir.
+    # Kalan (küçük gruplu) siteler eskisi gibi bireysel, görselli mesaj alır.
+    by_site: dict[str, list[asyncpg.Record]] = {}
+    for row in rows:
+        by_site.setdefault(row["site_code"], []).append(row)
+
+    individual: list[asyncpg.Record] = []
+    mass_summaries: list[str] = []
+    for site_code, site_rows in by_site.items():
+        if len(site_rows) > MASS_EVENT_THRESHOLD:
+            avg_drop = sum(r["pct_drop"] for r in site_rows) / len(site_rows)
+            max_drop = max(r["pct_drop"] for r in site_rows)
+            mass_summaries.append(
+                f"📢 <b>{site_code.capitalize()}</b>'ta toplu kampanya tespit edildi: "
+                f"<b>{len(site_rows)}</b> üründe fiyat düştü "
+                f"(ortalama %{avg_drop:.1f}, en yüksek %{max_drop:.1f})"
+            )
+        else:
+            individual.extend(site_rows)
+
     await send_message(f"📉 <b>{len(rows)}</b> üründe fiyat fırsatı bulundu:")
 
+    for summary in mass_summaries:
+        await send_message(summary)
+        await asyncio.sleep(SEND_DELAY_SECONDS)
+
+    to_send = individual[:MAX_ITEMS_TO_SEND]
     for row in to_send:
         caption = format_caption(row)
         if row["image_url"]:
@@ -116,18 +173,20 @@ async def send_drops(rows: list[asyncpg.Record]) -> None:
             await send_message(caption)
         await asyncio.sleep(SEND_DELAY_SECONDS)
 
-    if len(rows) > MAX_ITEMS_TO_SEND:
-        await send_message(f"... ve {len(rows) - MAX_ITEMS_TO_SEND} ürün daha")
+    if len(individual) > MAX_ITEMS_TO_SEND:
+        await send_message(f"... ve {len(individual) - MAX_ITEMS_TO_SEND} ürün daha")
 
 
 async def run_alerts(threshold_pct: float = DEFAULT_THRESHOLD_PCT) -> int:
     pool = await get_pg_pool()
+    await ensure_schema(pool)
     rows = await find_price_drops(pool, threshold_pct)
     if not rows:
-        logger.info(f"Eşik (%{threshold_pct}) üstü fiyat düşüşü yok")
+        logger.info(f"Eşik (%{threshold_pct}) üstü, daha önce bildirilmemiş fiyat düşüşü yok")
         return 0
 
     await send_drops(rows)
+    await record_alerted(pool, rows)
     logger.info(f"{len(rows)} fiyat düşüşü Telegram'a gönderildi (eşik: %{threshold_pct})")
     return len(rows)
 

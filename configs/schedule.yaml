@@ -1,0 +1,12 @@
+timezone: Europe/Istanbul
+
+# Fiyat zinciri: category_fetcher -> duckdb_pipeline -> build_clean -> normalize
+# -> sync_to_postgres -> alert_engine (bkz. scripts/run_price_pipeline.py)
+price_pipeline:
+  times: ["09:30", "12:30", "17:30", "21:30"]
+
+# robots.txt + sitemap keşfi (bkz. scripts/run_discovery.py) - category_fetcher kategori
+# listesini configs/tr/{site}.yaml'dan okuyor, crawler'ın discovered_urls'una bağımlı değil.
+# Sitemap saatlik değişmediği için fiyat zincirinden çok daha seyrek.
+crawler_discovery:
+  times: ["06:00"]
