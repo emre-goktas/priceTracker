@@ -131,8 +131,17 @@ def main() -> None:
 
     con = duckdb.connect(str(DB_PATH))
     try:
+        failed_sites = []
         for site in args.sites or discover_sites():
-            build_clean(con, site)
+            try:
+                build_clean(con, site)
+            except Exception as exc:
+                # Bir sitenin decisions.yaml/dedup mantığı bozuksa diğerleri işlenmeye devam
+                # etsin (duckdb_pipeline.py'nin load_all()'daki aynı izolasyon ilkesi).
+                print(f"{site}: clean_{site} kurulamadı, atlanıyor - {exc}")
+                failed_sites.append(site)
+        if failed_sites:
+            print(f"{len(failed_sites)} site atlandı: {failed_sites}")
     finally:
         con.close()
 

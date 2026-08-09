@@ -276,16 +276,26 @@ def build(con: duckdb.DuckDBPyConnection, sites: list[str] | None = None) -> int
     logger.info(f"field_mapping bulunan siteler: {sites}")
 
     selects = []
+    failed_sites = []
     for site in sites:
         config = load_site_config(site)
         sql = build_site_select(site, config)
         try:
             count = con.execute(f"SELECT COUNT(*) FROM ({sql})").fetchone()[0]
         except Exception as exc:
-            logger.error(f"{site}: field_mapping SQL'i çalıştırılamadı - {exc}")
-            raise
+            # Bir sitenin field_mapping SQL'i bozuksa diğerleri işlenmeye devam etsin
+            # (duckdb_pipeline.py'nin load_all()'daki aynı izolasyon ilkesi, CLAUDE.md ilke #2).
+            logger.error(f"{site}: field_mapping SQL'i çalıştırılamadı, atlanıyor - {exc}")
+            failed_sites.append(site)
+            continue
         logger.info(f"  {site}: {count} satır")
         selects.append(sql)
+
+    if failed_sites:
+        logger.warning(f"{len(failed_sites)} site atlandı: {failed_sites}")
+    if not selects:
+        logger.error("Hiçbir site işlenemedi, silver_products güncellenmedi")
+        return 0
 
     union_sql = "\nUNION ALL\n".join(selects)
     write_silver(con, build_silver_select(union_sql))
