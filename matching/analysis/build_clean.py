@@ -42,14 +42,19 @@ VALUE_CLEAN_OVERRIDES = {
 # Ayrı bir arşiv/kadanstan (occasional refresh) beslenen küçük bir lookup tablosunu clean_{site}
 # kurulurken LEFT JOIN ile ekleyen, nadir istisna (bkz. matching/eveshop_html_supplement.py -
 # aynı gerekçeyle site adı burada geçiyor, VALUE_CLEAN_OVERRIDES gibi). Lookup tablo henüz
-# oluşturulmamışsa (script hiç çalıştırılmadıysa) sessizce atlanır - clean_{site} yine kurulur,
-# sadece supplement kolonları hep NULL kalır.
+# oluşturulmamışsa (script hiç çalıştırılmadıysa - örn. taze bir sunucu kurulumunda, bu script
+# ayrı/manuel bir iş) JOIN atlanır AMA kolonlar yine de NULL olarak eklenir (DÜZELTME
+# 2026-08-11 - önceki hali kolonları da atlıyordu, clean_eveshop'un şeması 16/20 kolon arasında
+# kararsız hale geliyordu; field_mapping bu kolonlara KOŞULSUZ referans verdiği için tablo yoksa
+# normalize.py "Referenced column ean_html not found" hatasıyla eveshop'u TAMAMEN atlıyordu -
+# canlı sunucuda yakalandı). clean_{site}'ın şeması artık supplement'ın var/yok olmasından
+# bağımsız her zaman sabit/kararlı.
 SUPPLEMENT_JOINS = {
     "eveshop": {
         "table": "eveshop_html_supplement",
         "raw_key": "id",
         "supplement_key": "product_id",
-        "add_sql": ["s.ean_html", "s.eve_price_html", "s.qty_html", "s.html_fetch_date"],
+        "columns": ["ean_html", "eve_price_html", "qty_html", "html_fetch_date"],
     },
 }
 
@@ -93,12 +98,17 @@ def build_clean(con: duckdb.DuckDBPyConnection, site: str) -> None:
 
     join_sql = ""
     supplement = SUPPLEMENT_JOINS.get(site)
-    if supplement and _table_exists(con, supplement["table"]):
-        add_sql += supplement["add_sql"]
-        join_sql = (
-            f"LEFT JOIN {supplement['table']} s "
-            f"ON r.{_quote(supplement['raw_key'])} = s.{_quote(supplement['supplement_key'])}"
-        )
+    if supplement:
+        if _table_exists(con, supplement["table"]):
+            add_sql += [f"s.{_quote(c)}" for c in supplement["columns"]]
+            join_sql = (
+                f"LEFT JOIN {supplement['table']} s "
+                f"ON r.{_quote(supplement['raw_key'])} = s.{_quote(supplement['supplement_key'])}"
+            )
+        else:
+            # Lookup tablo yok - kolonlar yine de NULL olarak eklenir ki field_mapping'in
+            # bunlara koşulsuz referansı (bkz. yukarıdaki not) her zaman derlenebilsin.
+            add_sql += [f"NULL AS {_quote(c)}" for c in supplement["columns"]]
 
     select_list = ",\n    ".join([f"r.{_quote(c)}" for c in columns] + add_sql)
 
