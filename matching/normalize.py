@@ -131,15 +131,16 @@ def build_site_select(site: str, config: dict) -> str:
     """Bir sitenin clean_ tablosundan kanonik alanları çıkaran SELECT'i üretir (DÜZELTME
     2026-08-07: eskiden raw_, bkz. modül başı notu).
 
-    Dedupe (ürün, TARİH) ikilisinde yapılır - sadece (ürün) değil. Bu, fiyat takibinin can
-    damarı: eskiden PARTITION BY sadece ürün id'siydi ve ORDER BY _fetch_date DESC ile HER
+    Dedupe (ürün, ÇALIŞTIRMA) ikilisinde yapılır - sadece (ürün) değil. Bu, fiyat takibinin can
+    damarı: eskiden PARTITION BY sadece ürün id'siydi ve ORDER BY fetch_date DESC ile HER
     ÜRÜNÜN SADECE EN SON snapshot'ı kalıyordu, yani dünkü fiyat silver'a hiç ulaşmıyordu
-    (ham arşivde durmasına rağmen). Tarih partition'a girince aynı gün içindeki sayfalama
-    tekrarları yine temizlenir ama günler arası geçmiş korunur.
+    (ham arşivde durmasına rağmen). Çalıştırma partition'a girince aynı çalıştırma içindeki
+    sayfalama tekrarları yine temizlenir ama çalıştırmalar arası (gün-içi/intraday dahil,
+    DÜZELTME 2026-08-11: eskiden sadece günler arası) geçmiş korunur.
 
-    Aynı gün içindeki eşitliklerde _row_id ile deterministik seçim yapılır (arşiv okuma
+    Aynı çalıştırma içindeki eşitliklerde _row_id ile deterministik seçim yapılır (arşiv okuma
     sırasındaki ilk kayıt) - böylece aynı veriyle iki çalıştırma aynı sonucu verir. clean_{site}
-    zaten AYNI (dedupe_key, _fetch_date) sözleşmesiyle build_clean.py'de dedup edilmiş oluyor -
+    zaten AYNI (dedupe_key, _ingested_at) sözleşmesiyle build_clean.py'de dedup edilmiş oluyor -
     buradaki QUALIFY bu yüzden çoğu zaman no-op, ama elle değiştirilmiş/bayat bir clean_{site}
     tablosuna karşı savunma amaçlı bilerek korunuyor.
     """
@@ -163,10 +164,11 @@ SELECT
     '{site}' AS site_code,
     CAST({id_expr} AS VARCHAR) AS source_product_id,
     _fetch_date AS fetch_date,
+    _ingested_at AS fetch_at,
     {joined_fields}
 FROM (
     SELECT * FROM clean_{site}
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY {dedupe_key}, _fetch_date ORDER BY _row_id) = 1
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY {dedupe_key}, _ingested_at ORDER BY _row_id) = 1
 )
 """
 
@@ -195,10 +197,11 @@ def build_silver_select(union_sql: str) -> str:
     )
     return f"""
 SELECT
-    md5(m.site_code || '_' || m.source_product_id || '_' || CAST(m.fetch_date AS VARCHAR)) AS silver_id,
+    md5(m.site_code || '_' || m.source_product_id || '_' || CAST(m.fetch_at AS VARCHAR)) AS silver_id,
     m.site_code,
     m.source_product_id,
     m.fetch_date,
+    m.fetch_at,
     {canonical_passthrough},
     tr_clean_text(m.name) AS name,
     m.name AS name_raw,
@@ -228,7 +231,7 @@ WHERE m.source_product_id IS NOT NULL
 
 
 def _expected_columns() -> set[str]:
-    base = {"silver_id", "site_code", "source_product_id", "fetch_date"}
+    base = {"silver_id", "site_code", "source_product_id", "fetch_date", "fetch_at"}
     return base | set(CANONICAL_FIELDS) | set(DERIVED_FIELDS)
 
 
@@ -242,8 +245,9 @@ def write_silver(con: duckdb.DuckDBPyConnection, select_sql: str) -> None:
     """silver_products'ı APPEND semantiğiyle günceller.
 
     Eskiden CREATE OR REPLACE idi: her çalıştırma tabloyu sıfırlıyordu. Artık sadece bu
-    çalıştırmada üretilen (site, fetch_date) çiftleri silinip yeniden yazılır - aynı gün
-    tekrar çalıştırmak idempotenttir, geçmiş günlere dokunulmaz.
+    çalıştırmada üretilen (site, fetch_at) çiftleri silinip yeniden yazılır - aynı ÇALIŞTIRMAYI
+    tekrar işlemek idempotenttir, geçmiş çalıştırmalara (gün-içi/intraday dahil, DÜZELTME
+    2026-08-11: eskiden fetch_date/günlük granülerlikti) dokunulmaz.
 
     Şema değişirse (CANONICAL_FIELDS'a alan eklenir/çıkarılırsa) INSERT BY NAME kırılacağı
     için tablo bilinçli olarak baştan kurulur ve bu durum loglanır - geçmiş satırlar ham
@@ -265,7 +269,7 @@ def write_silver(con: duckdb.DuckDBPyConnection, select_sql: str) -> None:
 
     con.execute(f"""
         DELETE FROM {TABLE}
-        WHERE (site_code, fetch_date) IN (SELECT DISTINCT site_code, fetch_date FROM _silver_new)
+        WHERE (site_code, fetch_at) IN (SELECT DISTINCT site_code, fetch_at FROM _silver_new)
     """)
     con.execute(f"INSERT INTO {TABLE} BY NAME SELECT * FROM _silver_new")
 
@@ -313,19 +317,22 @@ def report(con: duckdb.DuckDBPyConnection) -> None:
         logger.warning(f"{TABLE} boş - kalite raporu atlandı")
         return
 
-    logger.info("site x tarih satır sayısı:")
-    for site, day, count in con.execute(
-        f"SELECT site_code, fetch_date, COUNT(*) FROM {TABLE} GROUP BY 1, 2 ORDER BY 1, 2"
+    # DÜZELTME (2026-08-11): gruplama/tekillik kontrolü artık fetch_date değil fetch_at
+    # bazında - günde N çalıştırma olması artık NORMAL, fetch_date bazlı gruplama günde 4
+    # satır birikince YANLIŞ "tekillik ihlali" alarmı verirdi.
+    logger.info("site x çalıştırma satır sayısı:")
+    for site, run_at, count in con.execute(
+        f"SELECT site_code, fetch_at, COUNT(*) FROM {TABLE} GROUP BY 1, 2 ORDER BY 1, 2"
     ).fetchall():
-        logger.info(f"  {site:10s} {day} {count:>7d}")
+        logger.info(f"  {site:10s} {run_at} {count:>7d}")
 
     dup = con.execute(f"""
         SELECT COUNT(*) FROM (
-            SELECT site_code, source_product_id, fetch_date
+            SELECT site_code, source_product_id, fetch_at
             FROM {TABLE} GROUP BY 1, 2, 3 HAVING COUNT(*) > 1
         )
     """).fetchone()[0]
-    logger.info(f"tekillik ihlali (site, ürün, tarih) = {dup} (0 olmalı)")
+    logger.info(f"tekillik ihlali (site, ürün, çalıştırma) = {dup} (0 olmalı)")
 
     logger.info("alan bazında NULL oranı:")
     for field in ["ean", "sale_price_try", "is_in_stock", "category_path", "brand", "size_value"]:

@@ -14,8 +14,9 @@ import yaml
 # dokunmuyor (raw her zaman MinIO'nun tam/ham yansıması kalmalı, bkz. CLAUDE.md ilke 4).
 #
 # Dedup mantığı matching/normalize.py -> build_site_select ile AYNI sözleşme: aynı
-# (product_id_field, _fetch_date) ikilisinde _row_id'ye göre ilk kayıt tutulur - aynı günkü
-# sayfalama tekrarları temizlenir, günler arası geçmiş KORUNUR.
+# (product_id_field, _ingested_at) ikilisinde _row_id'ye göre ilk kayıt tutulur - aynı
+# ÇALIŞTIRMADAKİ sayfalama tekrarları temizlenir, çalıştırmalar (gün içi/intraday dahil) arası
+# geçmiş KORUNUR (DÜZELTME 2026-08-11: eskiden _fetch_date/günlük granülerlikti).
 #
 # python -m matching.analysis.build_clean [site ...]  (site verilmezse configs/tr/*.yaml'daki
 # field_mapping'i olan tüm siteler)
@@ -120,7 +121,7 @@ def build_clean(con: duckdb.DuckDBPyConnection, site: str) -> None:
             {select_list}
         FROM (
             SELECT * FROM raw_{site}
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY {_quote(dedupe_key)}, _fetch_date ORDER BY _row_id) = 1
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY {_quote(dedupe_key)}, _ingested_at ORDER BY _row_id) = 1
         ) r
         {join_sql}
     """)

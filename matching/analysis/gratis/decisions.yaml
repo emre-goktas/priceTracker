@@ -289,7 +289,10 @@ columns:
     reason: "Provenance - hangi kategoriden geldiği izlenebilir kalmalı."
   - path: _fetch_date
     analysis: "Crawl tarihi, %100 dolu."
-    reason: "Fiyat geçmişinin can damarı - dedupe ve tarih partition'ı bu alana dayanıyor."
+    reason: "Günlük özet/rapor için okunabilir tarih - DÜZELTME (2026-08-11): dedupe/geçmiş partition anahtarı artık _ingested_at, bu alan değil (gün-içi/intraday takip için değişti, bkz. _ingested_at notu)."
+  - path: _ingested_at
+    analysis: "Pipeline çalıştırma zaman damgası (2026-08-11 eklendi, gün-içi takip için), %100 dolu."
+    reason: "silver_products'ın artık dedupe/geçmiş partition anahtarı bu - _fetch_date değil. Günde N çalıştırmanın her biri kendi satırını korur."
   - path: _row_id
     analysis: "Ham tablodaki satır kimliği, %100 dolu, benzersiz (39254/39254)."
     reason: "Silver dedupe'ında deterministik sıralama anahtarı."

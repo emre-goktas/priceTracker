@@ -30,10 +30,20 @@ CONDITIONAL_LABELS = {
     "watsons": "🎫 Üye Fiyatı",
 }
 
-# Her (site_code, source_product_id) için en son 2 fetch_date karşılaştırılır (site-bazlı,
-# siteler arası eşleştirme YOK - bkz. CLAUDE.md "Şu An Kapsam Dışı"). is_in_stock filtresi
-# şart: stokta olmayan ürünlerin fiyatı kayan/güvenilmez artık değer olabiliyor (bkz. proje
-# hafızası, Watsons örneği) - yoksa yanlış-pozitif alarm üretir.
+# Her (site_code, source_product_id) için en son 2 ÇALIŞTIRMA (fetch_at) karşılaştırılır
+# (site-bazlı, siteler arası eşleştirme YOK - bkz. CLAUDE.md "Şu An Kapsam Dışı"). DÜZELTME
+# (2026-08-11): eskiden fetch_date (günlük) idi - artık fetch_at (çalıştırma-bazlı) olduğu için
+# gün-içi/intraday fiyat değişiklikleri de yakalanıyor, günler arası karşılaştırma da aynı
+# mekanizmayla otomatik çalışıyor (rn=1/rn=2 "recency"nin ne anlama geldiğinden bağımsız).
+# is_in_stock filtresi şart: stokta olmayan ürünlerin fiyatı kayan/güvenilmez artık değer
+# olabiliyor (bkz. proje hafızası, Watsons örneği) - yoksa yanlış-pozitif alarm üretir.
+#
+# BUG + DÜZELTME (2026-08-11, canlı yakalandı): is_in_stock filtresi eskiden ROW_NUMBER'dan
+# ÖNCE uygulanıyordu - bir ürünün EN GÜNCEL satırı stok dışıysa filtre onu tamamen eleyip
+# rn=1'i DAHA ESKİ bir "stoktaymış gibi görünen" satıra kaydırıyordu, yani "güncel" diye
+# gösterilen veri aslında güncel değildi (kullanıcı canlı sitede "stokta yok" görüp yakaladı).
+# Çözüm: `latest_overall` ile l'nin (rn=1, stok-filtreli) GERÇEKTEN o ürünün mutlak en son
+# satırı olduğu ayrıca doğrulanıyor - aradaki bir yerde stoktan düşmüşse alarm hiç üretilmez.
 #
 # "Koşulsuz" (sale_price_try) ve "koşullu/kart" (conditional_promo_price_try) fiyatlar AYRI
 # alarmlar DEĞİL - hangisi düşükse (LEAST) MÜŞTERİNİN GERÇEKTE ÖDEYECEĞİ fiyat odur, alarm
@@ -42,18 +52,23 @@ CONDITIONAL_LABELS = {
 # olur - kullanıcının Eveshop örneği (799 TL normal / 319.50 TL EVE Kart+) bunun içindir: kart
 # fiyatı varken normal fiyata bakmak yanıltıcı, gerçek karar noktası ikisinin ucuz olanı.
 #
-# pricing.alerted_drops LEFT JOIN'i: aynı gün cron 4 kez çalışsa bile (fetch_date günlük
-# granülerlik) aynı (site, ürün, gün) düşüşü SADECE 1 kez bildirilir - silver_id zaten bu
-# üçlüyü kodluyor, daha önce alerted_drops'a yazılmışsa bu sorgu bir daha döndürmez.
+# pricing.alerted_drops LEFT JOIN'i: silver_id artık (site, ürün, ÇALIŞTIRMA) üçlüsünü
+# kodluyor - aynı çalıştırmanın sonucu tekrar işlense bile aynı düşüş SADECE 1 kez bildirilir,
+# daha önce alerted_drops'a yazılmışsa bu sorgu bir daha döndürmez.
 DROP_QUERY = """
 WITH ranked AS (
     SELECT *,
         LEAST(sale_price_try, conditional_promo_price_try) AS effective_price,
         ROW_NUMBER() OVER (
-            PARTITION BY site_code, source_product_id ORDER BY fetch_date DESC
+            PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC
         ) AS rn
     FROM pricing.silver_products
     WHERE is_in_stock IS TRUE AND sale_price_try IS NOT NULL
+),
+latest_overall AS (
+    SELECT site_code, source_product_id, MAX(fetch_at) AS latest_fetch_at
+    FROM pricing.silver_products
+    GROUP BY 1, 2
 )
 SELECT
     l.silver_id, l.site_code, l.source_product_id, l.name, l.brand, l.url, l.image_url,
@@ -64,8 +79,11 @@ SELECT
 FROM ranked l
 JOIN ranked p
     ON p.site_code = l.site_code AND p.source_product_id = l.source_product_id AND p.rn = 2
+JOIN latest_overall lo
+    ON lo.site_code = l.site_code AND lo.source_product_id = l.source_product_id
 LEFT JOIN pricing.alerted_drops a ON a.silver_id = l.silver_id
 WHERE l.rn = 1
+  AND l.fetch_at = lo.latest_fetch_at
   AND l.effective_price < p.effective_price
   AND (p.effective_price - l.effective_price) / p.effective_price * 100 >= $1
   AND a.silver_id IS NULL
@@ -89,8 +107,14 @@ def format_caption(row: asyncpg.Record) -> str:
     else:
         lines.append(f"Normal Fiyat: {new_sale:.2f} TL")
 
+    # BUG + DÜZELTME (2026-08-11, canlı yakalandı): koşullu/kart fiyatı önceden new_sale'den
+    # PAHALI olsa bile gösteriliyordu (Gratis'in promotionPrice'ı bazı ürünlerde - özellikle
+    # sale_price_try <= 250 TL iken - "önizleme"/güvenilmez bir değer taşıyor, field_mapping'in
+    # kendi notu bunu zaten söylüyordu). Kart fiyatı gerçekten daha ucuz DEĞİLSE göstermenin
+    # hiçbir anlamı yok - kullanıcı "kart fiyatı yanlış" diye bildirdi. Artık SADECE gerçekten
+    # indirim ise (new_conditional < new_sale) gösteriliyor.
     new_conditional = row["new_conditional"]
-    if new_conditional is not None:
+    if new_conditional is not None and new_conditional < new_sale:
         label = CONDITIONAL_LABELS.get(row["site_code"], "🎫 Üye Fiyatı")
         old_conditional = row["old_conditional"]
         if old_conditional is not None and old_conditional != new_conditional:
@@ -98,9 +122,8 @@ def format_caption(row: asyncpg.Record) -> str:
         else:
             lines.append(f"{label}: <b>{new_conditional:.2f} TL</b>")
 
-        if new_conditional < new_sale:
-            gap_pct = round((new_sale - new_conditional) / new_sale * 100)
-            lines.append(f"💡 Kart ile normal fiyattan %{gap_pct} daha ucuz")
+        gap_pct = round((new_sale - new_conditional) / new_sale * 100)
+        lines.append(f"💡 Kart ile normal fiyattan %{gap_pct} daha ucuz")
 
     lines.append("")
     lines.append(f"📉 <b>%{row['pct_drop']}</b> düştü")

@@ -5,6 +5,7 @@ import html as html_module
 import json
 import re
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -458,6 +459,7 @@ def load_site(
     config_override: dict | None = None,
     raw_table_override: str | None = None,
     tracking_key_override: str | None = None,
+    ingested_at: datetime | None = None,
 ) -> int:
     """Bir sitenin arşivini DuckDB'ye indirir (varsayılan: inkremental).
 
@@ -472,7 +474,14 @@ def load_site(
     ara sıra HTML barkod-tazeleme kaynağı - bkz. matching/eveshop_html_supplement.py). Ayrı
     tracking_key şart: aynı 'site' anahtarını paylaşmak, bir kaynağın --full-refresh'i diğer
     kaynağın ingest-log kaydını da silerdi (INGEST_LOG_TABLE 'site' bazlı, tabloya göre değil).
+
+    ingested_at: bu çalıştırmayı (run) damgalayan zaman - verilmezse `datetime.now()` kullanılır.
+    load_all() TÜM siteler için TEK bir değer üretip geçirir (aynı pipeline çalıştırması aynı
+    damgayı paylaşsın diye) - matching/analysis/build_clean.py ve normalize.py bunu (_fetch_date
+    DEĞİL) dedupe/geçmiş partition anahtarı olarak kullanır, gün-içi (intraday) fiyat takibinin
+    temeli budur (bkz. CLAUDE.md "Zamanlanmış Çalıştırma").
     """
+    ingested_at = ingested_at or datetime.now(timezone.utc)
     config = config_override or load_site_config(site)
     extension = archive_extension(config)
     all_objects = _list_archive_objects(site, extension)
@@ -499,6 +508,7 @@ def load_site(
         logger.warning(f"{site}: okunan objelerden hiç satır çıkmadı")
         return 0
 
+    rows = [{**row, "_ingested_at": ingested_at.isoformat()} for row in rows]
     main_rows = _add_row_id(rows)
 
     if incremental:
@@ -509,6 +519,7 @@ def load_site(
             return load_site(
                 con, site, full_refresh=True, config_override=config_override,
                 raw_table_override=raw_table_override, tracking_key_override=tracking_key_override,
+                ingested_at=ingested_at,
             )
     else:
         con.execute(f"DELETE FROM {INGEST_LOG_TABLE} WHERE site = ?", [tracking_key])
@@ -524,11 +535,14 @@ def load_site(
 
 def load_all(sites: list[str] | None = None, full_refresh: bool = False) -> None:
     con = duckdb.connect(str(DB_PATH))
+    # Tek bir pipeline çalıştırmasındaki TÜM siteler aynı "run" damgasını paylaşsın diye
+    # döngü öncesinde bir kez üretilir (bkz. load_site()'ın ingested_at notu).
+    ingested_at = datetime.now(timezone.utc)
     try:
         _ensure_ingest_log(con)
         for site in sites or discover_sites():
             try:
-                load_site(con, site, full_refresh=full_refresh)
+                load_site(con, site, full_refresh=full_refresh, ingested_at=ingested_at)
             except Exception as exc:
                 # Bir sitenin arşivi bozuksa diğerleri işlenmeye devam etsin (CLAUDE.md ilke #2)
                 logger.error(f"{site}: landing başarısız - {exc}")

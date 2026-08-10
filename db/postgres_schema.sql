@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS pricing.silver_products (
     site_code TEXT NOT NULL,
     source_product_id TEXT NOT NULL,
     fetch_date DATE NOT NULL,
+    fetch_at TIMESTAMPTZ NOT NULL,
     source_sku TEXT,
     ean TEXT[],
     url TEXT,
@@ -59,10 +60,15 @@ CREATE INDEX IF NOT EXISTS idx_silver_products_site_date
     ON pricing.silver_products (site_code, fetch_date);
 CREATE INDEX IF NOT EXISTS idx_silver_products_source_product
     ON pricing.silver_products (site_code, source_product_id);
+-- content/alert_engine.py'nin "en son çalıştırma vs bir önceki çalıştırma" sıralamasını
+-- (ROW_NUMBER OVER ... ORDER BY fetch_at DESC) destekler - DÜZELTME 2026-08-11, gün-içi takip.
+CREATE INDEX IF NOT EXISTS idx_silver_products_site_product_run
+    ON pricing.silver_products (site_code, source_product_id, fetch_at);
 
 -- content/alert_engine.py'nin "bu düşüşü zaten bildirdim mi" takibi. silver_id zaten
--- (site_code, source_product_id, fetch_date) içeriyor - aynı gün cron 4 kez çalışsa bile
--- aynı (site, ürün, gün) kombinasyonu için alarm SADECE 1 kez gönderilir.
+-- (site_code, source_product_id, fetch_at) içeriyor - DÜZELTME (2026-08-11): artık günlük değil
+-- ÇALIŞTIRMA bazında - aynı çalıştırmanın sonucu tekrar işlense bile aynı düşüş SADECE 1 kez
+-- gönderilir, ama gün-içi farklı çalıştırmalar arasındaki gerçek değişiklikler yakalanır.
 CREATE TABLE IF NOT EXISTS pricing.alerted_drops (
     silver_id TEXT PRIMARY KEY,
     old_effective_price DOUBLE PRECISION NOT NULL,

@@ -17,7 +17,7 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "postgres_schema.s
 
 # DESCRIBE silver_products ile birebir aynı sıra.
 COLUMNS = [
-    "silver_id", "site_code", "source_product_id", "fetch_date", "source_sku", "ean",
+    "silver_id", "site_code", "source_product_id", "fetch_date", "fetch_at", "source_sku", "ean",
     "url", "image_url", "currency", "list_price_try", "sale_price_try",
     "conditional_promo_price_try", "discount_rate", "stock_status_raw", "is_in_stock",
     "stock_qty", "category_path", "name", "name_raw", "name_normalized", "brand",
