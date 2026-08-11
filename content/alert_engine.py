@@ -36,14 +36,9 @@ CONDITIONAL_LABELS = {
 # gün-içi/intraday fiyat değişiklikleri de yakalanıyor, günler arası karşılaştırma da aynı
 # mekanizmayla otomatik çalışıyor (rn=1/rn=2 "recency"nin ne anlama geldiğinden bağımsız).
 # is_in_stock filtresi şart: stokta olmayan ürünlerin fiyatı kayan/güvenilmez artık değer
-# olabiliyor (bkz. proje hafızası, Watsons örneği) - yoksa yanlış-pozitif alarm üretir.
-#
-# BUG + DÜZELTME (2026-08-11, canlı yakalandı): is_in_stock filtresi eskiden ROW_NUMBER'dan
-# ÖNCE uygulanıyordu - bir ürünün EN GÜNCEL satırı stok dışıysa filtre onu tamamen eleyip
-# rn=1'i DAHA ESKİ bir "stoktaymış gibi görünen" satıra kaydırıyordu, yani "güncel" diye
-# gösterilen veri aslında güncel değildi (kullanıcı canlı sitede "stokta yok" görüp yakaladı).
-# Çözüm: `latest_overall` ile l'nin (rn=1, stok-filtreli) GERÇEKTEN o ürünün mutlak en son
-# satırı olduğu ayrıca doğrulanıyor - aradaki bir yerde stoktan düşmüşse alarm hiç üretilmez.
+# olabiliyor (bkz. proje hafızası, Watsons örneği) - yoksa yanlış-pozitif alarm üretir. Hem
+# GÜNCEL (l) hem KARŞILAŞTIRMA (p) satırı bu yüzden stok filtresinden geçmeli - ikisi de
+# `ranked` CTE'sinin İÇİNDE, ROW_NUMBER'dan ÖNCE filtreleniyor (aşağıdaki DÜZELTME notuna bkz.).
 #
 # "Koşulsuz" (sale_price_try) ve "koşullu/kart" (conditional_promo_price_try) fiyatlar AYRI
 # alarmlar DEĞİL - hangisi düşükse (LEAST) MÜŞTERİNİN GERÇEKTE ÖDEYECEĞİ fiyat odur, alarm
@@ -55,34 +50,48 @@ CONDITIONAL_LABELS = {
 # pricing.alerted_drops LEFT JOIN'i: silver_id artık (site, ürün, ÇALIŞTIRMA) üçlüsünü
 # kodluyor - aynı çalıştırmanın sonucu tekrar işlense bile aynı düşüş SADECE 1 kez bildirilir,
 # daha önce alerted_drops'a yazılmışsa bu sorgu bir daha döndürmez.
+#
+# DÜZELTME (2026-08-11, Gemini'nin bir düzeltmesi review edilirken yakalandı): Gemini bu
+# sorguyu is_in_stock filtresini ROW_NUMBER'dan SONRA (sadece rn=1/güncel satıra) uygulayacak
+# şekilde LEAD() ile yeniden yazmıştı - bu, "güncel satır gerçekten en son mu" sorununu
+# (aşağıdaki latest_overall ile zaten çözülmüştü) farklı bir yoldan tekrar çözüyordu AMA yeni
+# bir regresyon getiriyordu: "eski/karşılaştırma" fiyatı (LEAD ile bulunan) artık stok-dışı bir
+# satırdan da gelebiliyordu - stok-dışı fiyatlar kayan/güvenilmez değerler taşıyabiliyor (bkz.
+# Watsons örneği), yanlışlıkla "büyük düşüş" gibi görünen sahte alarmlar üretebilirdi. Çözüm:
+# `ranked` CTE'si is_in_stock filtresini ÖNCEDEN uygular (hem l/rn=1 HEM p/rn=2 sadece stoktaki
+# satırlardan seçilir), `latest_overall` ise l'nin GERÇEKTEN o ürünün mutlak en son satırı
+# olduğunu (aradaki daha güncel ama stok-dışı bir satırı atlamadığını) ayrıca doğrular.
 DROP_QUERY = """
 WITH ranked AS (
-    SELECT
-        silver_id, site_code, source_product_id, name, brand, url, image_url,
-        sale_price_try, conditional_promo_price_try,
+    SELECT *,
         LEAST(sale_price_try, conditional_promo_price_try) AS effective_price,
-        fetch_at,
-        is_in_stock,
-        ROW_NUMBER() OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS rn,
-        LEAD(sale_price_try) OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS old_sale,
-        LEAD(conditional_promo_price_try) OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS old_conditional,
-        LEAD(LEAST(sale_price_try, conditional_promo_price_try)) OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS old_effective
+        ROW_NUMBER() OVER (
+            PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC
+        ) AS rn
     FROM pricing.silver_products
+    WHERE is_in_stock IS TRUE AND sale_price_try IS NOT NULL
+),
+latest_overall AS (
+    SELECT site_code, source_product_id, MAX(fetch_at) AS latest_fetch_at
+    FROM pricing.silver_products
+    GROUP BY 1, 2
 )
 SELECT
-    r.silver_id, r.site_code, r.source_product_id, r.name, r.brand, r.url, r.image_url,
-    r.old_sale, r.sale_price_try AS new_sale,
-    r.old_conditional, r.conditional_promo_price_try AS new_conditional,
-    r.old_effective, r.effective_price AS new_effective,
-    ROUND((100 * (r.old_effective - r.effective_price) / r.old_effective)::numeric, 1) AS pct_drop
-FROM ranked r
-LEFT JOIN pricing.alerted_drops a ON a.silver_id = r.silver_id
-WHERE r.rn = 1
-  AND r.is_in_stock IS TRUE
-  AND r.sale_price_try IS NOT NULL
-  AND r.old_effective IS NOT NULL
-  AND r.effective_price < r.old_effective
-  AND (r.old_effective - r.effective_price) / r.old_effective * 100 >= $1
+    l.silver_id, l.site_code, l.source_product_id, l.name, l.brand, l.url, l.image_url,
+    p.sale_price_try AS old_sale, l.sale_price_try AS new_sale,
+    p.conditional_promo_price_try AS old_conditional, l.conditional_promo_price_try AS new_conditional,
+    p.effective_price AS old_effective, l.effective_price AS new_effective,
+    ROUND((100 * (p.effective_price - l.effective_price) / p.effective_price)::numeric, 1) AS pct_drop
+FROM ranked l
+JOIN ranked p
+    ON p.site_code = l.site_code AND p.source_product_id = l.source_product_id AND p.rn = 2
+JOIN latest_overall lo
+    ON lo.site_code = l.site_code AND lo.source_product_id = l.source_product_id
+LEFT JOIN pricing.alerted_drops a ON a.silver_id = l.silver_id
+WHERE l.rn = 1
+  AND l.fetch_at = lo.latest_fetch_at
+  AND l.effective_price < p.effective_price
+  AND (p.effective_price - l.effective_price) / p.effective_price * 100 >= $1
   AND a.silver_id IS NULL
 ORDER BY pct_drop DESC
 """
