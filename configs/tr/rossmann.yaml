@@ -52,6 +52,7 @@ product_id_field: "_source.id"
 raw_columns:
   drop_prefixes:
     - "_source.cat_pos_"
+    - "_source.label"
 
 field_mapping:
   id: {strategy: direct_path, path: "_source.id", confidence: verified_data, note: "product_id_field zaten bu, sayısal Magento entity ID"}

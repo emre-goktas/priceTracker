@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterator
+from datetime import datetime
 from io import BytesIO
 
 from dotenv import load_dotenv
@@ -47,6 +48,11 @@ class StorageClient:
         """Verilen prefix altındaki tüm objelerin adlarını (recursive) üretir."""
         for obj in self._client.list_objects(bucket, prefix=prefix, recursive=True):
             yield obj.object_name
+
+    def list_objects(self, bucket: str, prefix: str) -> Iterator[tuple[str, datetime]]:
+        """Verilen prefix altındaki objelerin (object_name, last_modified) çiftlerini (recursive) üretir."""
+        for obj in self._client.list_objects(bucket, prefix=prefix, recursive=True):
+            yield obj.object_name, obj.last_modified
 
     def get_bytes(self, bucket: str, object_name: str) -> bytes:
         """Bir objenin tamamını okur ve HTTP bağlantısını havuza geri verir."""

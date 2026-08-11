@@ -57,35 +57,32 @@ CONDITIONAL_LABELS = {
 # daha önce alerted_drops'a yazılmışsa bu sorgu bir daha döndürmez.
 DROP_QUERY = """
 WITH ranked AS (
-    SELECT *,
+    SELECT
+        silver_id, site_code, source_product_id, name, brand, url, image_url,
+        sale_price_try, conditional_promo_price_try,
         LEAST(sale_price_try, conditional_promo_price_try) AS effective_price,
-        ROW_NUMBER() OVER (
-            PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC
-        ) AS rn
+        fetch_at,
+        is_in_stock,
+        ROW_NUMBER() OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS rn,
+        LEAD(sale_price_try) OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS old_sale,
+        LEAD(conditional_promo_price_try) OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS old_conditional,
+        LEAD(LEAST(sale_price_try, conditional_promo_price_try)) OVER (PARTITION BY site_code, source_product_id ORDER BY fetch_at DESC) AS old_effective
     FROM pricing.silver_products
-    WHERE is_in_stock IS TRUE AND sale_price_try IS NOT NULL
-),
-latest_overall AS (
-    SELECT site_code, source_product_id, MAX(fetch_at) AS latest_fetch_at
-    FROM pricing.silver_products
-    GROUP BY 1, 2
 )
 SELECT
-    l.silver_id, l.site_code, l.source_product_id, l.name, l.brand, l.url, l.image_url,
-    p.sale_price_try AS old_sale, l.sale_price_try AS new_sale,
-    p.conditional_promo_price_try AS old_conditional, l.conditional_promo_price_try AS new_conditional,
-    p.effective_price AS old_effective, l.effective_price AS new_effective,
-    ROUND((100 * (p.effective_price - l.effective_price) / p.effective_price)::numeric, 1) AS pct_drop
-FROM ranked l
-JOIN ranked p
-    ON p.site_code = l.site_code AND p.source_product_id = l.source_product_id AND p.rn = 2
-JOIN latest_overall lo
-    ON lo.site_code = l.site_code AND lo.source_product_id = l.source_product_id
-LEFT JOIN pricing.alerted_drops a ON a.silver_id = l.silver_id
-WHERE l.rn = 1
-  AND l.fetch_at = lo.latest_fetch_at
-  AND l.effective_price < p.effective_price
-  AND (p.effective_price - l.effective_price) / p.effective_price * 100 >= $1
+    r.silver_id, r.site_code, r.source_product_id, r.name, r.brand, r.url, r.image_url,
+    r.old_sale, r.sale_price_try AS new_sale,
+    r.old_conditional, r.conditional_promo_price_try AS new_conditional,
+    r.old_effective, r.effective_price AS new_effective,
+    ROUND((100 * (r.old_effective - r.effective_price) / r.old_effective)::numeric, 1) AS pct_drop
+FROM ranked r
+LEFT JOIN pricing.alerted_drops a ON a.silver_id = r.silver_id
+WHERE r.rn = 1
+  AND r.is_in_stock IS TRUE
+  AND r.sale_price_try IS NOT NULL
+  AND r.old_effective IS NOT NULL
+  AND r.effective_price < r.old_effective
+  AND (r.old_effective - r.effective_price) / r.old_effective * 100 >= $1
   AND a.silver_id IS NULL
 ORDER BY pct_drop DESC
 """

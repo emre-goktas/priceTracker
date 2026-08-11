@@ -5,7 +5,7 @@ import html as html_module
 import json
 import re
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -79,13 +79,37 @@ def flatten(obj: object, prefix: str = "", out: dict | None = None) -> dict:
     return out
 
 
-def _list_archive_objects(site: str, extension: str) -> list[str]:
+def _list_archive_objects(site: str, extension: str) -> list[tuple[str, datetime]]:
     prefix = f"category/{site}/"
-    return sorted(
-        name
-        for name in storage.list_object_names(BUCKET, prefix)
+    entries = [
+        (name, mtime)
+        for name, mtime in storage.list_objects(BUCKET, prefix)
         if name.endswith(f".{extension}") and not name.endswith(".meta.json")
-    )
+    ]
+    return sorted(entries, key=lambda x: (x[1], x[0]))
+
+
+def _cluster_entries(
+    entries: list[tuple[str, datetime]], gap_minutes: int = 15
+) -> list[list[tuple[str, datetime]]]:
+    """Zaman damgalarına göre sıralı arşiv objelerini çalıştırma (run) pencerelerine kümeler.
+
+    İki ardışık obje arasındaki süre gap_minutes'tan fazlaysa yeni bir çalıştırma kabul edilir.
+    Böylece tam yenileme (full_refresh) durumunda bile geçmiş çalıştırmaların zaman damgaları
+    korunur, tüm tarihçe tek bir çalıştırma damgasıyla ezilmez."""
+    if not entries:
+        return []
+    clusters: list[list[tuple[str, datetime]]] = []
+    current: list[tuple[str, datetime]] = [entries[0]]
+    for item in entries[1:]:
+        if (item[1] - current[-1][1]) > timedelta(minutes=gap_minutes):
+            clusters.append(current)
+            current = [item]
+        else:
+            current.append(item)
+    if current:
+        clusters.append(current)
+    return clusters
 
 
 def _read_object(object_name: str) -> bytes:
@@ -484,16 +508,18 @@ def load_site(
     ingested_at = ingested_at or datetime.now(timezone.utc)
     config = config_override or load_site_config(site)
     extension = archive_extension(config)
-    all_objects = _list_archive_objects(site, extension)
-    if not all_objects:
+    all_entries = _list_archive_objects(site, extension)
+    if not all_entries:
         logger.warning(f"{site}: arşivde hiç obje yok")
         return 0
 
+    all_objects = [name for name, _ in all_entries]
     raw_table = raw_table_override or f"raw_{site}"
     tracking_key = tracking_key_override or site
     incremental = not full_refresh and _table_exists(con, raw_table)
     seen = _already_ingested(con, tracking_key) if incremental else set()
-    pending = [name for name in all_objects if name not in seen]
+    pending_entries = [e for e in all_entries if e[0] not in seen]
+    pending = [name for name, _ in pending_entries]
 
     if incremental and not pending:
         logger.info(f"{site}: yeni arşiv objesi yok ({len(all_objects)} obje zaten işlenmiş)")
@@ -503,12 +529,23 @@ def load_site(
         f"{site}: {len(pending)}/{len(all_objects)} obje okunacak "
         f"({'inkremental' if incremental else 'tam yenileme'})"
     )
-    rows = collect_rows(site, pending, config=config)
+    clusters = _cluster_entries(pending_entries)
+    rows: list[dict] = []
+    for cluster in clusters:
+        cluster_names = [name for name, _ in cluster]
+        cluster_rows = collect_rows(site, cluster_names, config=config)
+        if not cluster_rows:
+            continue
+        if len(clusters) == 1 and ingested_at:
+            ts = ingested_at.isoformat()
+        else:
+            ts = cluster[-1][1].isoformat()
+        rows.extend([{**row, "_ingested_at": ts} for row in cluster_rows])
+
     if not rows:
         logger.warning(f"{site}: okunan objelerden hiç satır çıkmadı")
         return 0
 
-    rows = [{**row, "_ingested_at": ingested_at.isoformat()} for row in rows]
     main_rows = _add_row_id(rows)
 
     if incremental:
